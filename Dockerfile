@@ -1,10 +1,13 @@
+
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libmicrohttpd-dev \
     libcurl4-openssl-dev \
     libcjson-dev \
+    nginx \
+    gettext-base \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -17,6 +20,6 @@ RUN gcc -o web_server server.c quiz_engine.c ai.c \
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
-EXPOSE 8080
+EXPOSE 10000
 
 CMD ["/app/start.sh"]
