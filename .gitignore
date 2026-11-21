@@ -1,0 +1,17 @@
+# Compiled files
+*.o
+*.exe
+web_server
+ai_quiz
+
+# Private credentials
+.env
+.env.*
+!.env.example
+
+# Personal quiz history
+history.json
+
+# Git and editor files
+.git/
+.vscode/

@@ -1,0 +1,78 @@
+{
+	"questions":	[{
+			"question":	"Which regularization technique randomly zeroes out a subset of activations during training to prevent neural networks from overfitting?",
+			"options":	["Batch Normalization", "Dropout", "L1 Regularization", "Max Pooling"],
+			"correct_option":	"B",
+			"explanation":	"Dropout prevents units from co-adapting too much by randomly setting a fraction of input units to 0 at each update during training time, forcing the network to learn more robust features."
+		}, {
+			"question":	"What is the primary purpose of applying a kernel in a Convolutional Neural Network (CNN)?",
+			"options":	["To compress the overall size of the dataset before ingestion", "To introduce non-linearity into the network architecture", "To extract spatial features such as edges and textures from images", "To convert categorical labels into one-hot encoded vectors"],
+			"correct_option":	"C",
+			"explanation":	"Kernels (or filters) slide across input images performing element-wise multiplication and summation, which helps the network detect local spatial patterns like edges, corners, and textures."
+		}, {
+			"question":	"Which evaluation metric is defined as the harmonic mean of precision and recall?",
+			"options":	["ROC-AUC", "F1-Score", "Mean Squared Error", "Jaccard Index"],
+			"correct_option":	"B",
+			"explanation":	"The F1-Score combines precision and recall into a single metric by computing their harmonic mean, making it particularly useful when dealing with imbalanced datasets."
+		}, {
+			"question":	"What is the main drawback of using the standard Sigmoid function as an activation layer in deep neural networks?",
+			"options":	["It causes the vanishing gradient problem", "It outputs negative values that destabilize training", "It is computationally undefined at zero", "It forces the network output to be unbounded"],
+			"correct_option":	"A",
+			"explanation":	"The derivative of the sigmoid function drops close to zero for very high or low input values. In deep networks, this causes gradients to shrink exponentially during backpropagation, halting learning."
+		}, {
+			"question":	"In the context of unsupervised learning, what does the 'K' represent in the K-Means clustering algorithm?",
+			"options":	["The maximum number of allowed iterations", "The dimensionality of the feature space", "The number of clusters to partition the data into", "The learning rate scaling factor"],
+			"correct_option":	"C",
+			"explanation":	"K represents the predetermined number of distinct clusters that the algorithm attempts to identify and group the data points around."
+		}, {
+			"question":	"What problem does the Vanishing Gradient problem directly interfere with during neural network training?",
+			"options":	["Forward propagation speed", "Data preprocessing normalization", "Backpropagation weight updates in early layers", "Dataset train-test split validation"],
+			"correct_option":	"C",
+			"explanation":	"Because gradients diminish exponentially as they flow backward through deep layers, the weights in the initial layers receive negligibly small updates, effectively preventing them from learning."
+		}, {
+			"question":	"Which ensemble learning method builds multiple decision trees sequentially, where each new tree specifically tries to correct the errors made by the previous ones?",
+			"options":	["Random Forest", "Gradient Boosting", "Bagging", "Voting Classifier"],
+			"correct_option":	"B",
+			"explanation":	"Gradient Boosting builds models in a stage-wise fashion, optimizing a loss function by training subsequent trees on the residual errors of the prior ensemble."
+		}, {
+			"question":	"Why is data normalization or standardization often crucial before training algorithms like Support Vector Machines (SVMs) or K-Nearest Neighbors (KNN)?",
+			"options":	["To remove categorical variables from the dataset", "To prevent features with larger numerical scales from dominating the distance calculations", "To ensure the loss function becomes strictly convex", "To automatically handle missing values in the dataset"],
+			"correct_option":	"B",
+			"explanation":	"Algorithms that rely on distance metrics (like Euclidean distance in KNN and SVM margins) will disproportionately weight features that have larger numeric ranges unless all features are scaled comparably."
+		}, {
+			"question":	"What is the primary function of the actor network in Actor-Critic reinforcement learning algorithms?",
+			"options":	["To evaluate the quality of actions taken by estimating the value function", "To select and execute actions based on the current policy", "To generate synthetic environment states for offline training", "To compute the final reward signal returned by the environment"],
+			"correct_option":	"B",
+			"explanation":	"In Actor-Critic methods, the actor is responsible for updating the policy parameters to choose actions, while the critic evaluates those actions using a value function."
+		}, {
+			"question":	"What does an autoencoder neural network typically attempt to learn during its training phase?",
+			"options":	["To map input data to discrete classification labels", "To predict future time-series values based on past trends", "To compress input data into a lower-dimensional representation and then reconstruct it", "To generate realistic fake images from random noise vectors"],
+			"correct_option":	"C",
+			"explanation":	"Autoencoders are unsupervised neural networks designed to learn a compressed, efficient coding of unlabeled data through a bottleneck layer and then reconstruct the original input as closely as possible."
+		}, {
+			"question":	"Which regularization technique randomly zeroes out a subset of neuron outputs during training to prevent overfitting in neural networks?",
+			"options":	["L1 Regularization", "Dropout", "Batch Normalization", "Early Stopping"],
+			"correct_option":	"B",
+			"explanation":	"Dropout prevents co-adaptation of features by randomly dropping units during training, forcing the network to learn more robust representations."
+		}, {
+			"question":	"What is the primary purpose of applying a kernel trick in algorithms like Support Vector Machines?",
+			"options":	["To reduce the dimensionality of the dataset to speed up computation", "To implicitly map input data into a higher-dimensional space where it becomes linearly separable", "To convert categorical variables into numerical format without losing ordinal relationships", "To automatically tune hyperparameters using gradient descent"],
+			"correct_option":	"B",
+			"explanation":	"The kernel trick computes the inner products in a higher-dimensional feature space without explicitly transforming the data, making non-linear separation computationally feasible."
+		}, {
+			"question":	"Which loss function is predominantly used for multi-class classification problems where each instance belongs to exactly one of several mutually exclusive classes?",
+			"options":	["Mean Squared Error", "Binary Cross-Entropy", "Categorical Cross-Entropy", "Hinge Loss"],
+			"correct_option":	"C",
+			"explanation":	"Categorical cross-entropy measures the performance of a classification model whose output is a probability distribution over multiple class labels."
+		}, {
+			"question":	"What does the vanishing gradient problem refer to in deep neural networks?",
+			"options":	["Gradients become excessively large, causing numerical overflow during weight updates", "Gradients approach zero as they backpropagate through early layers, stalling their training", "The learning rate decays too rapidly, causing the optimizer to stop before reaching a minimum", "The loss function plateaus because the dataset is too small to represent the true distribution"],
+			"correct_option":	"B",
+			"explanation":	"In deep networks with certain activation functions like sigmoid, gradients shrink exponentially during backpropagation, leaving initial layers effectively untrained."
+		}, {
+			"question":	"In the context of reinforcement learning, what is the exploration-exploitation dilemma?",
+			"options":	["Choosing between minimizing training time and maximizing model accuracy", "Balancing the use of known actions that yield high rewards with trying new actions to discover potentially better ones", "Deciding whether to use a model-free or model-based approach for environment simulation", "Determining the optimal trade-off between reward discounting and future prediction horizons"],
+			"correct_option":	"B",
+			"explanation":	"Agents must choose between exploiting actions that historically gave high rewards and exploring unvisited states to find potentially superior long-term strategies."
+		}]
+}

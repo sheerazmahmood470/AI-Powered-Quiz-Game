@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#F5F5F2">
+  <meta name="description" content="AI Powered Quiz Game helps curious learners practise with AI-powered quizzes, explore subjects and understand their progress.">
+  <meta name="robots" content="index, follow">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="AI Powered Quiz Game — Make Learning Matter.">
+  <meta property="og:description" content="Challenge your knowledge with AI-powered quizzes, explore topics, and track your progress.">
+  <meta name="twitter:card" content="summary_large_image">
+  <title>AI Powered Quiz Game — Make Learning Matter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-container">
+
+  <aside class="sidebar">
+   
+<a class="brand" href="#" aria-label="AI Powered Quiz Game home">
+  <img class="brand-logo" src="assets/logo.png" alt="AI Powered Quiz Game logo">
+
+  <span class="brand-copy">
+    <strong><span class="brand-ai">AI Powered</span> <span class="brand-game">Quiz Game</span></strong>
+  </span>
+</a>
+
+    <div class="nav-label">WORKSPACE</div>
+    <nav aria-label="Main navigation">
+      <a href="#" class="active">Dashboard</a>
+      <a href="#">Start Quiz</a>
+      <a href="#">Leaderboard</a>
+      <a href="#">Quiz History</a>
+      <a href="#">Analytics</a>
+    </nav>
+
+    <div class="sidebar-spacer"></div>
+    <div class="sidebar-foot">
+      <span class="online-dot"></span> Learning space ready
+    </div>
+  </aside>
+
+  <main class="main-content">
+
+    <header class="topbar">
+      <div class="topbar-title">
+        <span class="eyebrow">YOUR LEARNING SPACE</span>
+        <h1>Dashboard</h1>
+        <p>Build knowledge, one quiz at a time.</p>
+      </div>
+
+      <div class="topbar-actions">
+        <label class="search-box">
+          <span>⌕</span>
+          <input id="global-topic-search" type="search"
+                 placeholder="Search quiz topics..."
+                 aria-label="Search quiz topics">
+          <kbd>/</kbd>
+        </label>
+
+        <button class="icon-button notification-button"
+                type="button" aria-label="Notifications">♧<i></i></button>
+
+        <div class="user-chip">
+          <div class="user-avatar">S</div>
+          <div>
+            <strong>Student Account</strong>
+            <small><span class="online-dot"></span> Online</small>
+          </div>
+          <span class="chevron">⌄</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- IMMERSIVE LANDING EXPERIENCE -->
+    <section class="landing-experience" id="landing-experience">
+
+      <section class="story-hero reveal-section">
+        <div class="story-hero-copy">
+          <span class="story-eyebrow">
+            <span class="story-live-dot"></span>
+            INTELLIGENT PRACTICE. REAL PROGRESS.
+          </span>
+
+          <h2>Make curiosity <span>your advantage.</span></h2>
+
+          <p>
+            Discover new ideas, challenge your knowledge and
+            turn every quiz into a step forward.
+          </p>
+
+          <div class="story-hero-actions">
+            <button type="button" class="story-primary" data-open-quiz>
+              Start a quiz <span>↗</span>
+            </button>
+            <a href="#explore-topics" class="story-secondary">
+              Explore topics <span>↓</span>
+            </a>
+          </div>
+
+          <div class="story-hero-foot">
+            <span>01 / LEARN</span>
+            <span>02 / CHALLENGE</span>
+            <span>03 / GROW</span>
+          </div>
+        </div>
+
+        <div class="hero-stage" data-tilt
+             aria-label="A laptop displaying a learning workspace">
+
+          <img class="hero-laptop-photo"
+               src="https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1500&q=90"
+               alt="Laptop on a clean modern workspace"
+               fetchpriority="high">
+
+          <div class="hero-stage-grid"></div>
+          <div class="hero-stage-glow"></div>
+          <div class="hero-orbit hero-orbit-one"></div>
+          <div class="hero-orbit hero-orbit-two"></div>
+
+          <canvas id="hero-canvas"
+                  aria-label="Animated 3D knowledge object"></canvas>
+
+          <div class="hero-float-card hero-float-main">
+            <span>YOUR NEXT CHALLENGE</span>
+            <strong>Think beyond<br>the obvious.</strong>
+            <small>AI-GUIDED PRACTICE <b>↗</b></small>
+          </div>
+
+          <div class="hero-float-card hero-float-small">
+            <span class="float-check">✓</span>
+            <div>
+              <strong>Progress in motion</strong>
+              <small>One question at a time</small>
+            </div>
+          </div>
+
+          <span class="hero-coordinate">KNOWLEDGE / IN MOTION</span>
+        </div>
+      </section>
+
+      <section class="topic-marquee" aria-label="Quiz topics">
+        <div class="marquee-track">
+          <div class="marquee-group">
+            <span>AI & MACHINE LEARNING</span><i>✳</i>
+            <span>C PROGRAMMING</span><i>✳</i>
+            <span>HISTORY</span><i>✳</i>
+            <span>PHILOSOPHY</span><i>✳</i>
+            <span>FINANCE</span><i>✳</i>
+          </div>
+          <div class="marquee-group" aria-hidden="true">
+            <span>AI & MACHINE LEARNING</span><i>✳</i>
+            <span>C PROGRAMMING</span><i>✳</i>
+            <span>HISTORY</span><i>✳</i>
+            <span>PHILOSOPHY</span><i>✳</i>
+            <span>FINANCE</span><i>✳</i>
+          </div>
+        </div>
+      </section>
+
+      <section class="story-section explore-section" id="explore-topics">
+        <div class="story-section-heading reveal-section">
+          <div>
+            <span class="story-eyebrow">FIND YOUR NEXT INTEREST</span>
+            <h2>Knowledge has<br><span>no boundaries.</span></h2>
+          </div>
+          <p>
+            From code to critical thinking, choose a subject
+            and discover what you can do.
+          </p>
+        </div>
+
+        <div class="story-topic-grid">
+
+          <button class="story-topic-card topic-ai reveal-section"
+                  type="button" data-topic-shortcut="AI & ML">
+            <img src="https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=900&q=85"
+                 alt="Computer circuit board representing artificial intelligence"
+                 loading="lazy">
+            <span class="topic-card-index">01 / TECHNOLOGY</span>
+            <span class="topic-card-bottom">
+              <strong>AI & Machine Learning</strong>
+              <small>Explore intelligent systems ↗</small>
+            </span>
+          </button>
+
+          <button class="story-topic-card topic-code reveal-section"
+                  type="button" data-topic-shortcut="C Programming">
+            <img src="https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=900&q=85"
+                 alt="Computer screen displaying programming code"
+                 loading="lazy">
+            <span class="topic-card-index">02 / DEVELOPMENT</span>
+            <span class="topic-card-bottom">
+              <strong>C Programming</strong>
+              <small>Build your logic ↗</small>
+            </span>
+          </button>
+
+          <button class="story-topic-card topic-history reveal-section"
+                  type="button" data-topic-shortcut="History">
+            <img src="https://images.unsplash.com/photo-1461360228754-6e81c478b882?auto=format&fit=crop&w=900&q=85"
+                 alt="Historical architecture" loading="lazy">
+            <span class="topic-card-index">03 / DISCOVERY</span>
+            <span class="topic-card-bottom">
+              <strong>History</strong>
+              <small>Understand the past ↗</small>
+            </span>
+          </button>
+
+          <button class="story-topic-card topic-philosophy reveal-section"
+                  type="button" data-topic-shortcut="Philosophy">
+            <img src="https://images.unsplash.com/photo-1455390582262-044cdead277a?auto=format&fit=crop&w=900&q=85"
+                 alt="Notebook and writing desk" loading="lazy">
+            <span class="topic-card-index">04 / THINKING</span>
+            <span class="topic-card-bottom">
+              <strong>Philosophy</strong>
+              <small>Question your perspective ↗</small>
+            </span>
+          </button>
+
+          <button class="story-topic-card topic-finance reveal-section"
+                  type="button" data-topic-shortcut="Finance">
+            <img src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=900&q=85"
+                 alt="Financial analytics on a computer screen"
+                 loading="lazy">
+            <span class="topic-card-index">05 / BUSINESS</span>
+            <span class="topic-card-bottom">
+              <strong>Finance</strong>
+              <small>Understand the numbers ↗</small>
+            </span>
+          </button>
+
+        </div>
+      </section>
+            <section class="story-section learning-section">
+        <div class="learning-visual reveal-section">
+          <img
+            src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1400&q=90"
+            alt="Students collaborating in a modern learning environment"
+            loading="lazy"
+          >
+          <div class="learning-image-caption">
+            <span>LEARNING IS A JOURNEY</span>
+            <strong>Stay curious.<br>Keep exploring.</strong>
+          </div>
+        </div>
+
+        <div class="learning-copy reveal-section">
+          <span class="story-eyebrow">A BETTER WAY TO PRACTISE</span>
+          <h2>Learn something.<br><span>Then prove it.</span></h2>
+          <p>
+            Reading gives you knowledge. Practice helps you understand it.
+            QuizMind AI makes it easier to challenge yourself, discover
+            your strengths and identify what you can improve.
+          </p>
+
+          <div class="learning-points">
+            <div>
+              <span>01</span>
+              <div>
+                <strong>Choose your subject</strong>
+                <small>Explore topics that interest you.</small>
+              </div>
+            </div>
+            <div>
+              <span>02</span>
+              <div>
+                <strong>Challenge your knowledge</strong>
+                <small>Practise with AI-powered questions.</small>
+              </div>
+            </div>
+            <div>
+              <span>03</span>
+              <div>
+                <strong>Understand your progress</strong>
+                <small>Review your results and learn from them.</small>
+              </div>
+            </div>
+          </div>
+
+          <button class="story-primary" type="button" data-open-quiz>
+            Begin learning <span>↗</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="story-section features-section">
+        <div class="story-section-heading reveal-section">
+          <div>
+            <span class="story-eyebrow">THE QUIZMIND EXPERIENCE</span>
+            <h2>Designed around<br><span>your progress.</span></h2>
+          </div>
+          <p>
+            Everything you need to practise, understand and
+            keep moving forward.
+          </p>
+        </div>
+
+        <div class="feature-story-grid">
+          <article class="feature-story-card reveal-section">
+            <div class="feature-story-number">01</div>
+            <div class="feature-story-icon">✳</div>
+            <h3>AI-powered quizzes</h3>
+            <p>
+              Explore questions generated around your selected
+              learning topic and challenge your understanding.
+            </p>
+            <span>INTELLIGENT PRACTICE</span>
+          </article>
+
+          <article class="feature-story-card reveal-section">
+            <div class="feature-story-number">02</div>
+            <div class="feature-story-icon">↗</div>
+            <h3>Track your progress</h3>
+            <p>
+              Follow your quiz activity, review your scores
+              and understand your learning journey.
+            </p>
+            <span>MEANINGFUL INSIGHTS</span>
+          </article>
+
+          <article class="feature-story-card reveal-section">
+            <div class="feature-story-number">03</div>
+            <div class="feature-story-icon">◎</div>
+            <h3>Challenge yourself</h3>
+            <p>
+              Take on different topics, test what you know
+              and build confidence through regular practice.
+            </p>
+            <span>CONTINUOUS GROWTH</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="story-section ai-section">
+        <div class="ai-section-image reveal-section">
+          <img
+            src="https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=1400&q=90"
+            alt="Artificial intelligence concept"
+            loading="lazy"
+          >
+          <span class="image-label">THE INTELLIGENCE BEHIND THE EXPERIENCE</span>
+        </div>
+
+        <div class="ai-section-copy reveal-section">
+          <span class="story-eyebrow">MEET YOUR LEARNING ENGINE</span>
+          <h2>Technology that<br><span>supports curiosity.</span></h2>
+          <p>
+            QuizMind AI combines an intelligent quiz experience
+            with a simple interface. Select a subject, start a
+            session and receive feedback as you practise.
+          </p>
+          <div class="ai-highlight">
+            <span>✳</span>
+            <div>
+              <strong>Powered by AI</strong>
+              <small>Questions, explanations and learning feedback.</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="story-section student-section">
+        <div class="story-section-heading reveal-section">
+          <div>
+            <span class="story-eyebrow">A SPACE FOR EVERY LEARNER</span>
+            <h2>Make room for<br><span>your potential.</span></h2>
+          </div>
+          <p>
+            Whether you're exploring a new subject or improving
+            your existing knowledge, every step counts.
+          </p>
+        </div>
+
+        <div class="student-photo-grid">
+          <figure class="student-photo student-photo-large reveal-section">
+            <img
+              src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=1000&q=85"
+              alt="Student portrait"
+              loading="lazy"
+            >
+            <figcaption>
+              <span>THE CURIOUS MIND</span>
+              <strong>Ask better questions.</strong>
+            </figcaption>
+          </figure>
+
+          <figure class="student-photo reveal-section">
+            <img
+              src="https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=900&q=85"
+              alt="Young learner portrait"
+              loading="lazy"
+            >
+            <figcaption>
+              <span>THE CREATIVE THINKER</span>
+              <strong>Explore new ideas.</strong>
+            </figcaption>
+          </figure>
+
+          <figure class="student-photo reveal-section">
+            <img
+              src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=900&q=85"
+              alt="Student portrait"
+              loading="lazy"
+            >
+            <figcaption>
+              <span>THE PROBLEM SOLVER</span>
+              <strong>Keep getting better.</strong>
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="story-section review-section">
+        <div class="review-heading reveal-section">
+          <span class="story-eyebrow">THE LEARNING EXPERIENCE</span>
+          <h2>Your progress.<br><span>Your own story.</span></h2>
+          <p>
+            Every learner has a different journey.
+            Make yours count with consistent practice.
+          </p>
+        </div>
+
+        <div class="review-visual reveal-section">
+          <img
+            src="https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1500&q=90"
+            alt="Students studying together"
+            loading="lazy"
+          >
+          <div class="review-visual-overlay">
+            <span>LEARN TOGETHER. GROW EVERY DAY.</span>
+            <strong>Knowledge grows<br>when you put it to practice.</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="story-final-cta reveal-section">
+        <span class="story-eyebrow">YOUR NEXT CHAPTER STARTS HERE</span>
+        <h2>Ready to challenge<br><span>what you know?</span></h2>
+        <p>Choose a topic. Start a quiz. Discover your progress.</p>
+        <button type="button" class="story-primary" data-open-quiz>
+          Start your first quiz <span>↗</span>
+        </button>
+      </section>
+
+    </section>
+    <!-- END LANDING EXPERIENCE -->
+
+
+    <!-- DASHBOARD -->
+    <section class="app-page" id="dashboard-page">
+      <div class="page-intro">
+        <div>
+          <span class="story-eyebrow">YOUR PERSONAL OVERVIEW</span>
+          <h2>Welcome back.</h2>
+          <p>Here's how your learning journey is progressing.</p>
+        </div>
+        <button class="story-primary" type="button" data-open-quiz>
+          Start a quiz <span>↗</span>
+        </button>
+      </div>
+
+      <div class="stats-grid">
+        <article class="stat-card">
+          <span>Total quizzes</span>
+          <strong id="total-quizzes">0</strong>
+          <small>Completed sessions</small>
+        </article>
+        <article class="stat-card">
+          <span>Questions answered</span>
+          <strong id="total-questions">0</strong>
+          <small>Total practice questions</small>
+        </article>
+        <article class="stat-card">
+          <span>Average score</span>
+          <strong id="average-score">0%</strong>
+          <small>Your overall performance</small>
+        </article>
+        <article class="stat-card">
+          <span>AI questions</span>
+          <strong id="ai-questions">0</strong>
+          <small>Questions generated</small>
+        </article>
+      </div>
+
+      <div class="dashboard-content-grid">
+        <section class="content-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="story-eyebrow">YOUR ACTIVITY</span>
+              <h3>Recent activity</h3>
+            </div>
+            <button type="button" class="text-link" data-open-view="history">
+              View all ↗
+            </button>
+          </div>
+          <div id="recent-activity" class="activity-list">
+            <p class="empty-state">Your recent quiz activity will appear here.</p>
+          </div>
+        </section>
+
+        <section class="content-panel backend-panel">
+          <span class="story-eyebrow">SYSTEM STATUS</span>
+          <h3>QuizMind engine</h3>
+          <div class="backend-status-row">
+            <span id="backend-status-dot" class="status-dot"></span>
+            <strong id="backend-status">Checking connection...</strong>
+          </div>
+          <p>Your quiz engine connection status.</p>
+        </section>
+      </div>
+    </section>
+
+
+    <!-- QUIZ -->
+    <section class="app-page" id="start-quiz-page">
+      <div class="page-intro">
+        <div>
+          <span class="story-eyebrow">TEST YOUR KNOWLEDGE</span>
+          <h2>Start a quiz.</h2>
+          <p>Select your topic and set up your next challenge.</p>
+        </div>
+      </div>
+
+      <div class="quiz-layout">
+        <section class="content-panel quiz-settings-card" id="quiz-settings-card">
+          <span class="story-eyebrow">QUIZ SETUP</span>
+          <h3>Let's get started.</h3>
+
+          <label class="field-label" for="student-name">Your name</label>
+          <input id="student-name" type="text"
+                 placeholder="Enter your name" maxlength="49">
+
+          <label class="field-label">Choose a topic</label>
+          <div class="quiz-topic-grid">
+            <button type="button" class="quiz-topic-btn selected"
+                    data-topic="AI & ML">AI & Machine Learning</button>
+            <button type="button" class="quiz-topic-btn"
+                    data-topic="C Programming">C Programming</button>
+            <button type="button" class="quiz-topic-btn"
+                    data-topic="History">History</button>
+            <button type="button" class="quiz-topic-btn"
+                    data-topic="Philosophy">Philosophy</button>
+            <button type="button" class="quiz-topic-btn"
+                    data-topic="Finance">Finance</button>
+          </div>
+
+          <label class="field-label" for="question-count">Number of questions</label>
+          <select id="question-count">
+            <option value="10" selected>10 Questions</option>
+            <option value="15">15 Questions</option>
+          </select>
+
+          <button id="start-quiz-btn" type="button" class="story-primary full-width">
+            Generate my quiz <span>↗</span>
+          </button>
+        </section>
+
+        <section class="content-panel quiz-info-panel">
+          <span class="story-eyebrow">YOUR NEXT CHALLENGE</span>
+          <h3>Think clearly.<br>Learn continuously.</h3>
+          <p>
+            Read each question carefully, choose your answer
+            and review the explanation after submitting.
+          </p>
+          <img
+            src="https://images.unsplash.com/photo-1456324504439-367cee3b3c32?auto=format&fit=crop&w=1000&q=85"
+            alt="Books and study materials"
+            loading="lazy"
+          >
+        </section>
+      </div>
+
+      <section id="quiz-screen" class="content-panel quiz-screen" hidden>
+        <div class="quiz-progress-heading">
+          <span id="quiz-question-counter">Question 1</span>
+          <span id="quiz-progress-text">0% complete</span>
+        </div>
+        <div class="quiz-progress-track">
+          <div id="quiz-progress-bar"></div>
+        </div>
+
+        <span class="story-eyebrow">YOUR QUESTION</span>
+        <h2 id="quiz-question">Question will appear here.</h2>
+
+        <div id="quiz-options" class="quiz-options"></div>
+        <div id="quiz-feedback" class="quiz-feedback" aria-live="polite"></div>
+
+        <div class="quiz-controls">
+          <button id="submit-answer-btn" type="button" class="story-primary">
+            Submit answer <span>↗</span>
+          </button>
+          <button id="next-question-btn" type="button" class="story-primary" hidden>
+            Next question <span>→</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="quiz-result-screen" class="content-panel quiz-result-screen" hidden>
+        <span class="story-eyebrow">QUIZ COMPLETED</span>
+        <h2>Look how far you've come.</h2>
+
+        <div class="result-score">
+          <strong id="result-percentage">0%</strong>
+          <span>Your score</span>
+        </div>
+
+        <p id="result-student"></p>
+        <p id="result-topic"></p>
+
+        <div class="result-stats">
+          <div><strong id="result-correct">0</strong><span>Correct</span></div>
+          <div><strong id="result-incorrect">0</strong><span>Incorrect</span></div>
+          <div><strong id="result-total">0</strong><span>Total</span></div>
+          <div><strong id="result-time">0</strong><span>Time</span></div>
+        </div>
+
+        <button id="return-dashboard-btn" type="button" class="story-primary">
+          Return to dashboard <span>↗</span>
+        </button>
+      </section>
+    </section>
+
+
+    <!-- ANALYTICS -->
+    <section class="app-page" id="analytics-page">
+      <div class="page-intro">
+        <div>
+          <span class="story-eyebrow">UNDERSTAND YOUR JOURNEY</span>
+          <h2>Your analytics.</h2>
+          <p>Turn your practice history into useful insights.</p>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <article class="stat-card">
+          <span>Total quizzes</span>
+          <strong id="analytics-total-quizzes">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Total questions</span>
+          <strong id="analytics-total-questions">0</strong>
+        </article>
+      </div>
+
+      <div class="analytics-grid">
+        <section class="content-panel">
+          <span class="story-eyebrow">OVERALL PERFORMANCE</span>
+          <h3>Average score</h3>
+          <div class="analytics-ring" id="average-ring">
+            <svg viewBox="0 0 120 120">
+              <circle cx="60" cy="60" r="48" class="ring-bg"></circle>
+              <circle cx="60" cy="60" r="48" class="ring-progress" id="average-circle"></circle>
+            </svg>
+            <strong id="analytics-average-score">0%</strong>
+          </div>
+        </section>
+
+        <section class="content-panel">
+          <span class="story-eyebrow">PERSONAL BEST</span>
+          <h3>Best score</h3>
+          <div class="analytics-ring" id="best-ring">
+            <svg viewBox="0 0 120 120">
+              <circle cx="60" cy="60" r="48" class="ring-bg"></circle>
+              <circle cx="60" cy="60" r="48" class="ring-progress" id="best-circle"></circle>
+            </svg>
+            <strong id="analytics-best-score">0%</strong>
+          </div>
+        </section>
+      </div>
+
+      <section class="content-panel chart-panel">
+        <span class="story-eyebrow">YOUR PERFORMANCE OVER TIME</span>
+        <h3>Progress trend</h3>
+        <canvas id="performance-trend-chart"></canvas>
+      </section>
+
+      <div class="dashboard-content-grid">
+        <section class="content-panel">
+          <span class="story-eyebrow">PERSONALIZED SUMMARY</span>
+          <h3>Performance insights</h3>
+          <div id="performance-insights"></div>
+        </section>
+        <section class="content-panel">
+          <span class="story-eyebrow">SUBJECT BREAKDOWN</span>
+          <h3>Topic performance</h3>
+          <div id="topic-performance"></div>
+        </section>
+      </div>
+    </section>
+
+
+    <!-- LEADERBOARD -->
+    <section class="app-page" id="leaderboard-page">
+      <div class="page-intro">
+        <div>
+          <span class="story-eyebrow">CELEBRATE PROGRESS</span>
+          <h2>Leaderboard.</h2>
+          <p>See quiz performance across recorded sessions.</p>
+        </div>
+      </div>
+
+      <section class="content-panel table-panel">
+        <div class="panel-heading">
+          <div>
+            <span class="story-eyebrow">TOP PERFORMERS</span>
+            <h3>Quiz rankings</h3>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Student</th>
+                <th>Topic</th>
+                <th>Score</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-table-body">
+              <tr><td colspan="4">Leaderboard data will appear here.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+
+    <!-- QUIZ HISTORY -->
+    <section class="app-page" id="history-page">
+      <div class="page-intro">
+        <div>
+          <span class="story-eyebrow">YOUR PAST SESSIONS</span>
+          <h2>Quiz history.</h2>
+          <p>Revisit your completed quizzes and results.</p>
+        </div>
+      </div>
+
+      <section class="content-panel table-panel">
+        <div class="panel-heading">
+          <div>
+            <span class="story-eyebrow">ALL RECORDED SESSIONS</span>
+            <h3>Past quizzes</h3>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Topic</th>
+                <th>Correct</th>
+                <th>Incorrect</th>
+                <th>Score</th>
+              </tr>
+            </thead>
+            <tbody id="history-table-body">
+              <tr><td colspan="5">Your quiz history will appear here.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <footer class="site-footer">
+     
+<a class="brand footer-brand" href="#">
+  <img class="brand-logo" src="assets/logo.png" alt="AI Powered Quiz Game logo">
+
+  <span class="brand-copy">
+    <strong><span class="brand-ai">AI Powered</span> <span class="brand-game">Quiz Game</span></strong>
+  </span>
+</a>
+
+<p>Make curiosity your advantage.</p>
+<span>© <span id="footer-year"></span> AI Powered Quiz Game</span>
+<p class="powered-by">Powered by Osaka Operators</p>
+
+    </footer>
+
+  </main>
+</div>
+
+<div id="toast-message" class="toast-message" role="status"
+     aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/three.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
