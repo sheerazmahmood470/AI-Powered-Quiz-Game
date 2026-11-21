@@ -4,5 +4,4 @@
 *.o
 quiz
 web_server
-history.json
 cache.json
