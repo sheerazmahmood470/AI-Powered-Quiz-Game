@@ -54,6 +54,14 @@ static void unwrap_latex_text(char *text,const char *command) {
 static int looks_like_c_code(const char *s) {
     return strstr(s,"printf")||strstr(s,"scanf")||strstr(s,"#include")||strstr(s,"sizeof")||strstr(s,"return ")||strstr(s,"->")||strstr(s,"NULL")||strstr(s,"char ");
 }
+static int has_unrendered_math_command(const char *text) {
+    if (looks_like_c_code(text)) return 0;
+    for (const char *p=text; p[0] && p[1]; p++) {
+        if (p[0]=='\\\\' && isalpha((unsigned char)p[1])) return 1;
+    }
+    return 0;
+}
+
 static void normalize_ai_text(char *text,size_t capacity) {
     if(!text||!capacity)return;
     replace_text_token(text,capacity,"\\times","×");replace_text_token(text,capacity,"\\cdot","·");replace_text_token(text,capacity,"\\neq","≠");replace_text_token(text,capacity,"\\leq","≤");replace_text_token(text,capacity,"\\geq","≥");replace_text_token(text,capacity,"\\rightarrow","→");replace_text_token(text,capacity,"\\to","→");replace_text_token(text,capacity,"\\pi","π");
@@ -63,12 +71,24 @@ static void normalize_ai_text(char *text,size_t capacity) {
     char *r=text,*w=text;int space=0;while(*r){unsigned char ch=(unsigned char)*r++;if(isspace(ch)){space=(w!=text);continue;}if(space&&(size_t)(w-text)+1<capacity)*w++=' ';space=0;if((size_t)(w-text)+1<capacity)*w++=(char)ch;}*w='\0';
 }
 static int similar_question_text(const char *a,const char *b) {
-    char left[64][32],right[64][32];int lc=0,rc=0;const char *input[2]={a,b};char (*set[2])[32]={left,right};int *count[2]={&lc,&rc};
+    char left[64][32], right[64][32];
+    int lc=0, rc=0;
+    const char *input[2]={a,b};
+    char (*set[2])[32]={left,right};
+    int *count[2]={&lc,&rc};
     for(int side=0;side<2;side++){const unsigned char *p=(const unsigned char *)input[side];while(*p&&*count[side]<64){while(*p&&!isalnum(*p))p++;char token[32];size_t n=0;while(*p&&isalnum(*p)){if(n<31)token[n++]=(char)tolower(*p);p++;}token[n]='\0';if(n<3)continue;
         if(!strcmp(token,"what")||!strcmp(token,"which")||!strcmp(token,"when")||!strcmp(token,"where")||!strcmp(token,"does")||!strcmp(token,"this")||!strcmp(token,"that")||!strcmp(token,"with")||!strcmp(token,"from")||!strcmp(token,"into")||!strcmp(token,"for")||!strcmp(token,"the")||!strcmp(token,"and")||!strcmp(token,"are")||!strcmp(token,"how")||!strcmp(token,"following")||!strcmp(token,"context")||!strcmp(token,"question"))continue;
         int found=0;for(int i=0;i<*count[side];i++)if(!strcmp(set[side][i],token)){found=1;break;}if(!found)snprintf(set[side][(*count[side])++],32,"%s",token);
     }}
-    if(lc<3||rc<3)return 0;int shared=0;for(int i=0;i<lc;i++)for(int j=0;j<rc;j++)if(!strcmp(left[i],right[j])){shared++;break;}int total=lc+rc-shared;return shared>=3&&total>0&&(double)shared/(double)total>=0.72;
+    if (lc < 3 || rc < 3) return 0;
+    int shared=0;
+    for (int i=0;i<lc;i++) {
+        for (int j=0;j<rc;j++) {
+            if (!strcmp(left[i],right[j])) { shared++; break; }
+        }
+    }
+    int total=lc+rc-shared;
+    return shared>=3 && total>0 && (double)shared/(double)total>=0.72;
 }
 static int duplicate_question(const Question *q,const Question *list,int count) {
     for(int i=0;i<count;i++)if(same_text(q->question,list[i].question)||similar_question_text(q->question,list[i].question))return 1;
@@ -162,12 +182,12 @@ static int copy_json_question(
     snprintf(q->question, sizeof(q->question),
              "%s", question->valuestring);
     normalize_ai_text(q->question, sizeof(q->question));
-    if (!has_text(q->question)) return 0;
+    if (!has_text(q->question) || has_unrendered_math_command(q->question)) return 0;
 
     snprintf(q->explanation, sizeof(q->explanation),
              "%s", explanation->valuestring);
     normalize_ai_text(q->explanation, sizeof(q->explanation));
-    if (!has_text(q->explanation)) return 0;
+    if (!has_text(q->explanation) || has_unrendered_math_command(q->explanation)) return 0;
 
     q->correct_option = answer;
 
@@ -183,7 +203,7 @@ static int copy_json_question(
         snprintf(q->options[i], sizeof(q->options[i]),
                  "%s", option->valuestring);
         normalize_ai_text(q->options[i], sizeof(q->options[i]));
-        if (!has_text(q->options[i])) return 0;
+        if (!has_text(q->options[i]) || has_unrendered_math_command(q->options[i])) return 0;
 
         for (int j = 0; j < i; j++) {
             if (same_text(q->options[i], q->options[j])) {
