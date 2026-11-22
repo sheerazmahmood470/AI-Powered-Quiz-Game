@@ -346,36 +346,29 @@ static int question_exists(
 }
 
 
-/* ================= PERSISTENT AI QUESTION CACHE =================
-   One Gemini batch is generated only when a topic/count cache is empty.
-   The full batch is retained in Neon and copied into each quiz session.
-   The browser also receives question text/options up front (never answers).
+/* ================= ROTATING AI QUESTION CACHE =================
+   Keep the previous complete batch in Neon as a no-repeat reference.
+   Every new quiz generates one fresh full batch (never one request/question).
+   The browser still receives the whole batch at quiz start for instant navigation.
 */
 static Question process_question_cache[5][2][WEB_MAX_QUESTIONS];
 static int process_question_cache_ready[5][2];
 
 static int load_ai_question_cache(
     int topic_index,
-    int cache_slot,
     int question_count,
     Question *destination
 ) {
     if (!storage_is_configured()) return 0;
-
     char key[80];
-    snprintf(key, sizeof(key), "ai_questions_v1_%d_%d",
+    snprintf(key, sizeof(key), "ai_questions_v2_%d_%d",
              topic_index, question_count);
-
     char *data = storage_read_json(key);
     if (!data) return 0;
-
     cJSON *root = cJSON_Parse(data);
     free(data);
-
     cJSON *items = root
-        ? cJSON_GetObjectItemCaseSensitive(root, "questions")
-        : NULL;
-
+        ? cJSON_GetObjectItemCaseSensitive(root, "questions") : NULL;
     int accepted = 0;
     if (cJSON_IsArray(items)) {
         int total = cJSON_GetArraySize(items);
@@ -389,9 +382,7 @@ static int load_ai_question_cache(
             destination[accepted++] = candidate;
         }
     }
-
     cJSON_Delete(root);
-    (void)cache_slot;
     return accepted == question_count ? accepted : 0;
 }
 
@@ -401,36 +392,65 @@ static int save_ai_question_cache(
     const Question *questions
 ) {
     if (!storage_is_configured() || !questions) return 0;
-
     char key[80];
-    snprintf(key, sizeof(key), "ai_questions_v1_%d_%d",
+    snprintf(key, sizeof(key), "ai_questions_v2_%d_%d",
              topic_index, question_count);
-
     cJSON *root = cJSON_CreateObject();
     cJSON *items = root ? cJSON_AddArrayToObject(root, "questions") : NULL;
-    if (!items) {
-        cJSON_Delete(root);
-        return 0;
-    }
-
+    if (!items) { cJSON_Delete(root); return 0; }
     for (int i = 0; i < question_count; i++) {
         cJSON *item = question_to_json(&questions[i]);
-        if (!item) {
-            cJSON_Delete(root);
-            return 0;
-        }
+        if (!item) { cJSON_Delete(root); return 0; }
         cJSON_AddItemToArray(items, item);
     }
-
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (!json) return 0;
-
     int saved = storage_write_json(key, json);
     free(json);
     return saved;
 }
 
+static int generate_fresh_batch(
+    int topic_index,
+    int question_count,
+    const Question *previous,
+    Question *destination
+) {
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        AiTask task;
+        memset(&task, 0, sizeof(task));
+        snprintf(task.topic, sizeof(task.topic), "%s", field_names[topic_index]);
+        task.count = question_count;
+
+        /* Gemini accepts up to eight exclusions. Vary which previous questions
+           are supplied, then independently reject repeats against the full batch. */
+        int previous_count = previous ? question_count : 0;
+        task.excluded_count = previous_count < 8 ? previous_count : 8;
+        for (int i = 0; i < task.excluded_count; i++) {
+            int source = (attempt == 1) ? i :
+                (i + (attempt - 1) * 3) % previous_count;
+            task.excluded[i] = previous[source];
+        }
+
+        printf("[AI] Generating fresh batch %d/3: %d %s questions.\\n",
+               attempt, question_count, field_names[topic_index]);
+        generate_questions(&task);
+        if (!task.success || task.generated_count != question_count) continue;
+
+        int accepted = 0;
+        for (int i = 0; i < task.generated_count; i++) {
+            if (previous && question_exists(&task.generated[i], previous, question_count))
+                continue;
+            if (question_exists(&task.generated[i], destination, accepted))
+                continue;
+            destination[accepted++] = task.generated[i];
+        }
+        if (accepted == question_count) return 1;
+        fprintf(stderr, "[AI] Rejected batch: it repeated a question from the previous quiz.\\n");
+    }
+    return 0;
+}
 
 /* ================= SHUFFLE QUESTIONS ================= */
 
@@ -626,56 +646,49 @@ int quiz_engine_start(
     snprintf(session->topic, sizeof(session->topic), "%s", field_names[topic_index]);
 
     int cache_slot = (question_count == 10) ? 0 : 1;
-    Question *batch = process_question_cache[topic_index][cache_slot];
+    Question previous_batch[WEB_MAX_QUESTIONS];
+    Question fresh_batch[WEB_MAX_QUESTIONS];
+    memset(previous_batch, 0, sizeof(previous_batch));
+    memset(fresh_batch, 0, sizeof(fresh_batch));
 
-    if (!process_question_cache_ready[topic_index][cache_slot]) {
-        int cached = load_ai_question_cache(
-            topic_index, cache_slot, question_count, batch
-        );
-
-        if (cached == question_count) {
-            process_question_cache_ready[topic_index][cache_slot] = 1;
-            printf("[CACHE] Loaded %d %s questions from persistent Neon cache.\n",
-                   cached, field_names[topic_index]);
-        } else {
-            AiTask task;
-            memset(&task, 0, sizeof(task));
-            snprintf(task.topic, sizeof(task.topic), "%s", field_names[topic_index]);
-            task.count = question_count;
-            task.excluded_count = 0;
-
-            printf("\n[AI] Cache miss: requesting one batch of %d questions for %s.\n",
-                   question_count, task.topic);
-            generate_questions(&task);
-
-            printf("[AI] Generation status: %s\n",
-                   task.success ? "SUCCESS" : "FAILED");
-            printf("[AI] Questions received: %d/%d\n",
-                   task.generated_count, question_count);
-
-            if (!task.success || task.generated_count != question_count) {
-                fprintf(stderr, "[AI] Quiz cancelled: Gemini did not return the complete question set.\n");
-                goto cleanup;
-            }
-
-            memcpy(batch, task.generated,
-                   (size_t)question_count * sizeof(Question));
-            process_question_cache_ready[topic_index][cache_slot] = 1;
-
-            if (save_ai_question_cache(topic_index, question_count, batch)) {
-                printf("[CACHE] Saved %d %s questions to persistent Neon cache.\n",
-                       question_count, field_names[topic_index]);
-            } else {
-                fprintf(stderr, "[CACHE] Persistent save unavailable; keeping batch in process memory.\n");
-            }
-        }
+    int have_previous = 0;
+    if (process_question_cache_ready[topic_index][cache_slot]) {
+        memcpy(previous_batch, process_question_cache[topic_index][cache_slot],
+               (size_t)question_count * sizeof(Question));
+        have_previous = 1;
     } else {
-        printf("[CACHE] Reusing %d cached %s questions from memory.\n",
+        have_previous = load_ai_question_cache(
+            topic_index, question_count, previous_batch
+        ) == question_count;
+        if (have_previous) {
+            printf("[CACHE] Loaded previous %d-question %s batch for no-repeat protection.\\n",
+                   question_count, field_names[topic_index]);
+        }
+    }
+
+    /* A new quiz always gets a newly generated full batch. The old batch is
+       used only as a duplicate-exclusion reference, never replayed as the quiz. */
+    if (!generate_fresh_batch(
+            topic_index, question_count,
+            have_previous ? previous_batch : NULL,
+            fresh_batch)) {
+        fprintf(stderr, "[AI] Quiz cancelled: could not generate a complete fresh, non-repeating batch.\\n");
+        goto cleanup;
+    }
+
+    memcpy(process_question_cache[topic_index][cache_slot], fresh_batch,
+           (size_t)question_count * sizeof(Question));
+    process_question_cache_ready[topic_index][cache_slot] = 1;
+
+    if (save_ai_question_cache(topic_index, question_count, fresh_batch)) {
+        printf("[CACHE] Saved latest %d-question %s batch for future no-repeat protection.\\n",
                question_count, field_names[topic_index]);
+    } else {
+        fprintf(stderr, "[CACHE] Persistent no-repeat reference could not be updated; current batch remains available in memory.\\n");
     }
 
     for (int i = 0; i < question_count; i++) {
-        session->questions[i] = batch[i];
+        session->questions[i] = fresh_batch[i];
     }
 
     session->total_questions = question_count;
