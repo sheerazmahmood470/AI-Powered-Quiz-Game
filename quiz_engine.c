@@ -345,6 +345,93 @@ static int question_exists(
     return 0;
 }
 
+
+/* ================= PERSISTENT AI QUESTION CACHE =================
+   One Gemini batch is generated only when a topic/count cache is empty.
+   The full batch is retained in Neon and copied into each quiz session.
+   The browser also receives question text/options up front (never answers).
+*/
+static Question process_question_cache[5][2][WEB_MAX_QUESTIONS];
+static int process_question_cache_ready[5][2];
+
+static int load_ai_question_cache(
+    int topic_index,
+    int cache_slot,
+    int question_count,
+    Question *destination
+) {
+    if (!storage_is_configured()) return 0;
+
+    char key[80];
+    snprintf(key, sizeof(key), "ai_questions_v1_%d_%d",
+             topic_index, question_count);
+
+    char *data = storage_read_json(key);
+    if (!data) return 0;
+
+    cJSON *root = cJSON_Parse(data);
+    free(data);
+
+    cJSON *items = root
+        ? cJSON_GetObjectItemCaseSensitive(root, "questions")
+        : NULL;
+
+    int accepted = 0;
+    if (cJSON_IsArray(items)) {
+        int total = cJSON_GetArraySize(items);
+        for (int i = 0; i < total && accepted < question_count; i++) {
+            Question candidate;
+            memset(&candidate, 0, sizeof(candidate));
+            if (!question_from_json(cJSON_GetArrayItem(items, i), &candidate))
+                continue;
+            if (question_exists(&candidate, destination, accepted))
+                continue;
+            destination[accepted++] = candidate;
+        }
+    }
+
+    cJSON_Delete(root);
+    (void)cache_slot;
+    return accepted == question_count ? accepted : 0;
+}
+
+static int save_ai_question_cache(
+    int topic_index,
+    int question_count,
+    const Question *questions
+) {
+    if (!storage_is_configured() || !questions) return 0;
+
+    char key[80];
+    snprintf(key, sizeof(key), "ai_questions_v1_%d_%d",
+             topic_index, question_count);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON *items = root ? cJSON_AddArrayToObject(root, "questions") : NULL;
+    if (!items) {
+        cJSON_Delete(root);
+        return 0;
+    }
+
+    for (int i = 0; i < question_count; i++) {
+        cJSON *item = question_to_json(&questions[i]);
+        if (!item) {
+            cJSON_Delete(root);
+            return 0;
+        }
+        cJSON_AddItemToArray(items, item);
+    }
+
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!json) return 0;
+
+    int saved = storage_write_json(key, json);
+    free(json);
+    return saved;
+}
+
+
 /* ================= SHUFFLE QUESTIONS ================= */
 
 static void shuffle_questions(Question *questions, int count) {
@@ -538,27 +625,57 @@ int quiz_engine_start(
     snprintf(session->player, sizeof(session->player), "%s", player);
     snprintf(session->topic, sizeof(session->topic), "%s", field_names[topic_index]);
 
-    AiTask task;
-    memset(&task, 0, sizeof(task));
-    snprintf(task.topic, sizeof(task.topic), "%s", field_names[topic_index]);
-    task.count = question_count;
-    task.excluded_count = 0;
+    int cache_slot = (question_count == 10) ? 0 : 1;
+    Question *batch = process_question_cache[topic_index][cache_slot];
 
-    printf("\n[AI] Direct Gemini mode: requesting %d questions for %s.\n",
-           question_count, task.topic);
-    generate_questions(&task);
+    if (!process_question_cache_ready[topic_index][cache_slot]) {
+        int cached = load_ai_question_cache(
+            topic_index, cache_slot, question_count, batch
+        );
 
-    printf("[AI] Generation status: %s\n", task.success ? "SUCCESS" : "FAILED");
-    printf("[AI] Questions received: %d/%d\n",
-           task.generated_count, question_count);
+        if (cached == question_count) {
+            process_question_cache_ready[topic_index][cache_slot] = 1;
+            printf("[CACHE] Loaded %d %s questions from persistent Neon cache.\n",
+                   cached, field_names[topic_index]);
+        } else {
+            AiTask task;
+            memset(&task, 0, sizeof(task));
+            snprintf(task.topic, sizeof(task.topic), "%s", field_names[topic_index]);
+            task.count = question_count;
+            task.excluded_count = 0;
 
-    if (!task.success || task.generated_count != question_count) {
-        fprintf(stderr, "[AI] Quiz cancelled: Gemini did not return the complete question set.\n");
-        goto cleanup;
+            printf("\n[AI] Cache miss: requesting one batch of %d questions for %s.\n",
+                   question_count, task.topic);
+            generate_questions(&task);
+
+            printf("[AI] Generation status: %s\n",
+                   task.success ? "SUCCESS" : "FAILED");
+            printf("[AI] Questions received: %d/%d\n",
+                   task.generated_count, question_count);
+
+            if (!task.success || task.generated_count != question_count) {
+                fprintf(stderr, "[AI] Quiz cancelled: Gemini did not return the complete question set.\n");
+                goto cleanup;
+            }
+
+            memcpy(batch, task.generated,
+                   (size_t)question_count * sizeof(Question));
+            process_question_cache_ready[topic_index][cache_slot] = 1;
+
+            if (save_ai_question_cache(topic_index, question_count, batch)) {
+                printf("[CACHE] Saved %d %s questions to persistent Neon cache.\n",
+                       question_count, field_names[topic_index]);
+            } else {
+                fprintf(stderr, "[CACHE] Persistent save unavailable; keeping batch in process memory.\n");
+            }
+        }
+    } else {
+        printf("[CACHE] Reusing %d cached %s questions from memory.\n",
+               question_count, field_names[topic_index]);
     }
 
     for (int i = 0; i < question_count; i++) {
-        session->questions[i] = task.generated[i];
+        session->questions[i] = batch[i];
     }
 
     session->total_questions = question_count;
