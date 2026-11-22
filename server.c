@@ -303,6 +303,12 @@ static cJSON *create_question_json(
         question->question
     );
 
+    /* Include immediate answer feedback in the preloaded quiz batch.
+       Scoring and history persistence still happen once at quiz completion. */
+    char correct_answer[2] = { question->correct_option, 0 };
+    cJSON_AddStringToObject(json, "correct_answer", correct_answer);
+    cJSON_AddStringToObject(json, "explanation", question->explanation);
+
     cJSON *options = cJSON_AddArrayToObject(
         json,
         "options"
