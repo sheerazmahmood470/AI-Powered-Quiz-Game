@@ -23,6 +23,12 @@ static pthread_mutex_t history_mutex = PTHREAD_MUTEX_INITIALIZER;
 /* Protects AI generation and shared cache/question-bank writes */
 static pthread_mutex_t quiz_start_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+/* Render persistent disk path; falls back to the bundled history on first boot. */
+static const char *history_file_path(void) {
+    const char *configured = getenv("QUIZ_HISTORY_FILE");
+    return (configured && configured[0]) ? configured : "history.json";
+}
+
 /* ================= TOPICS ================= */
 
 static const char *field_names[5] = {
@@ -475,7 +481,15 @@ static int save_history(
 
     if (!data) return 0;
 
-    FILE *file = fopen("history.json.tmp", "w");
+    char temp_path[1200];
+    int path_length = snprintf(temp_path, sizeof(temp_path), "%s.tmp",
+                               history_file_path());
+    if (path_length < 0 || (size_t)path_length >= sizeof(temp_path)) {
+        free(data);
+        return 0;
+    }
+
+    FILE *file = fopen(temp_path, "w");
 
     if (!file) {
         free(data);

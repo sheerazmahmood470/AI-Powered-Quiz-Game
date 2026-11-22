@@ -292,6 +292,23 @@ function setupNavigation() {
         });
     }
 
+    // Keep the mobile workspace menu closed until the user opens it.
+    if (menuToggle && sidebar) {
+        const closeMenu = () => {
+            sidebar.classList.remove("mobile-nav-open");
+            menuToggle.setAttribute("aria-expanded", "false");
+            menuToggle.setAttribute("aria-label", "Open navigation menu");
+            const icon = menuToggle.querySelector(".mobile-nav-toggle-icon");
+            if (icon) icon.textContent = "☰";
+        };
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") closeMenu();
+        });
+        document.addEventListener("click", (event) => {
+            if (!sidebar.contains(event.target)) closeMenu();
+        });
+    }
+
     if (nav && !nav.querySelector("[data-home-link]")) {
         const homeLink = document.createElement("a");
 
@@ -307,6 +324,13 @@ function setupNavigation() {
             event.preventDefault();
 
             if (link.hasAttribute("data-home-link")) {
+                if (sidebar) sidebar.classList.remove("mobile-nav-open");
+                if (menuToggle) {
+                    menuToggle.setAttribute("aria-expanded", "false");
+                    menuToggle.setAttribute("aria-label", "Open navigation menu");
+                    const icon = menuToggle.querySelector(".mobile-nav-toggle-icon");
+                    if (icon) icon.textContent = "☰";
+                }
                 switchView("home");
                 return;
             }
