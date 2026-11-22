@@ -16,6 +16,7 @@
 
 #define MAX_BANK 2000
 #define MAX_HISTORY 5000
+#define MAX_AI_QUESTION_HISTORY 300
 #define NAME_LEN 50
 
 /* Protects history file operations */
@@ -351,7 +352,7 @@ static int question_exists(
    Every new quiz generates one fresh full batch (never one request/question).
    The browser still receives the whole batch at quiz start for instant navigation.
 */
-static Question process_question_cache[5][WEB_MAX_QUESTIONS];
+static Question process_question_cache[5][MAX_AI_QUESTION_HISTORY];
 static int process_question_cache_count[5];
 static int process_question_cache_ready[5];
 
@@ -371,7 +372,7 @@ static int load_ai_question_cache(
     int accepted = 0;
     if (cJSON_IsArray(items)) {
         int total = cJSON_GetArraySize(items);
-        for (int i = 0; i < total && accepted < WEB_MAX_QUESTIONS; i++) {
+        for (int i = 0; i < total && accepted < MAX_AI_QUESTION_HISTORY; i++) {
             Question candidate;
             memset(&candidate, 0, sizeof(candidate));
             if (!question_from_json(cJSON_GetArrayItem(items, i), &candidate))
@@ -426,9 +427,10 @@ static int generate_fresh_batch(
            are supplied, then independently reject repeats against the full batch. */
         int available_previous = previous ? previous_count : 0;
         task.excluded_count = available_previous < 8 ? available_previous : 8;
+        int exclusion_start = available_previous > 0
+            ? rand() % available_previous : 0;
         for (int i = 0; i < task.excluded_count; i++) {
-            int source = (attempt == 1) ? i :
-                (i + (attempt - 1) * 3) % available_previous;
+            int source = (exclusion_start + i + (attempt - 1) * 7) % available_previous;
             task.excluded[i] = previous[source];
         }
 
@@ -644,7 +646,7 @@ int quiz_engine_start(
     snprintf(session->player, sizeof(session->player), "%s", player);
     snprintf(session->topic, sizeof(session->topic), "%s", field_names[topic_index]);
 
-    Question previous_batch[WEB_MAX_QUESTIONS];
+    Question previous_batch[MAX_AI_QUESTION_HISTORY];
     Question fresh_batch[WEB_MAX_QUESTIONS];
     memset(previous_batch, 0, sizeof(previous_batch));
     memset(fresh_batch, 0, sizeof(fresh_batch));
@@ -664,8 +666,8 @@ int quiz_engine_start(
         }
     }
 
-    /* The no-repeat history is shared by 10- and 15-question quizzes,
-       so changing quiz length cannot bring back the previous field's questions. */
+    /* Keep a rolling per-topic history (300 questions), shared by 10- and
+       15-question quizzes. This prevents repeats across many later attempts. */
     if (!generate_fresh_batch(
             topic_index, question_count,
             previous_count ? previous_batch : NULL,
