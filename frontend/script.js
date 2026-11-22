@@ -1045,7 +1045,15 @@ async function completeQuiz() {
             method: "POST", headers: {"Content-Type": "application/json"},
             body: JSON.stringify({session_id: quizSessionId, answers: quizAnswers})
         });
-        showQuizResults(data);
+        // Use the browser's quiz-start clock for the displayed result duration.
+        // The server's monotonic clock value can be stale after a restored session.
+        const elapsedSeconds = quizStartTime
+            ? Math.max(0, Math.floor((Date.now() - quizStartTime) / 1000))
+            : Math.max(0, Number(data.duration_seconds) || 0);
+        showQuizResults({
+            ...data,
+            duration_seconds: elapsedSeconds
+        });
     } catch (error) {
         console.error("Quiz completion failed:", error);
         quizCompleting = false;
