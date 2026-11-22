@@ -829,33 +829,36 @@ function showQuizScreen() {
 
 // -------------------- QUESTION OPTIONS --------------------
 
+function normalizeDisplayText(value) {
+    let text = String(value ?? "");
+    const replacements = [
+        [/\\times\b/g, "×"], [/\\cdot\b/g, "·"], [/\\neq\b/g, "≠"],
+        [/\\leq\b/g, "≤"], [/\\geq\b/g, "≥"],
+        [/\\rightarrow\b|\\to\b/g, "→"], [/\\pi\b/g, "π"],
+        [/\\text\s*\{([^{}]*)\}/g, "$1"],
+        [/\\mathrm\s*\{([^{}]*)\}/g, "$1"],
+        [/\\operatorname\s*\{([^{}]*)\}/g, "$1"],
+        [/\\left|\\right|\\displaystyle/g, ""],
+        [/\\[()[\]]/g, ""], [/\\[,;]/g, " "],
+        [/\*\*|__/g, ""],
+        [new RegExp(String.fromCharCode(96), "g"), ""]
+    ];
+    for (const [pattern, replacement] of replacements) text = text.replace(pattern, replacement);
+    const looksLikeCode = /\b(printf|scanf|sizeof|return|NULL|char)\b|#include|->/.test(text);
+    if (!looksLikeCode) text = text.replace(/\\n/g, " ").replace(/\\\\/g, " ");
+    return text.replace(/\r\n?/g, "\n").replace(/[ \t]+/g, " ").trim();
+}
 function normalizeOptions(options) {
-    if (!Array.isArray(options)) {
-        return [];
-    }
-
+    if (!Array.isArray(options)) return [];
     const letters = ["A", "B", "C", "D"];
-
     return options.map((option, index) => {
         if (typeof option === "object" && option !== null) {
-            return {
-                letter: option.letter || option.key || letters[index],
-                text:
-                    option.text ||
-                    option.value ||
-                    option.option ||
-                    String(option)
-            };
+            return { letter: String(option.letter || option.key || letters[index]).trim(),
+                text: normalizeDisplayText(option.text || option.value || option.option || String(option)) };
         }
-
-        let text = String(option);
-
+        let text = normalizeDisplayText(option);
         text = text.replace(/^[A-D][).:\-]\s*/i, "");
-
-        return {
-            letter: letters[index] || String(index + 1),
-            text
-        };
+        return { letter: letters[index] || String(index + 1), text };
     });
 }
 
@@ -904,7 +907,7 @@ function renderQuestion(question) {
 
     if (questionText) {
         questionText.textContent =
-            question.question || "Question unavailable.";
+            normalizeDisplayText(question.question || "Question unavailable.");
     }
 
     if (feedback) {
@@ -924,13 +927,21 @@ function renderQuestion(question) {
 
     const options = normalizeOptions(question.options);
 
-    if (!options.length) {
+    const optionSignatures = options.map((option) =>
+        normalizeDisplayText(option.text).toLowerCase().replace(/[^a-z0-9]/g, "")
+    );
+    const optionsAreValid =
+        options.length === 4 &&
+        options.every((option) => option.text.trim()) &&
+        new Set(optionSignatures).size === 4;
+
+    if (!optionsAreValid) {
         optionsContainer.innerHTML = `
             <p class="quiz-error">
-                No options were received for this question.
+                This question did not pass the answer-option quality check. Please generate a new quiz.
             </p>
         `;
-
+        if (submitButton) submitButton.disabled = true;
         return;
     }
 
@@ -1073,7 +1084,7 @@ function showAnswerFeedback(data) {
             </p>
 
             <p class="feedback-explanation">
-                ${escapeHTML(explanation)}
+                ${escapeHTML(normalizeDisplayText(explanation))}
             </p>
         </div>
     `;

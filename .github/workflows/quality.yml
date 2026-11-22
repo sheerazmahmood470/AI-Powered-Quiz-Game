@@ -1,0 +1,29 @@
+name: Website quality checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - fix/mcq-quality-formatting
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install C build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libmicrohttpd-dev libcurl4-openssl-dev libcjson-dev libpq-dev
+      - name: Compile C backend
+        run: |
+          gcc -o /tmp/web_server server.c quiz_engine.c ai.c storage.c -I/usr/include/postgresql -lmicrohttpd -lcurl -lcjson -lpq -pthread -lm -Wall -Wextra
+      - name: Run MCQ generation validation tests
+        run: |
+          gcc -o /tmp/mcq_quality_test tests/mcq_quality_test.c -lcurl -lcjson
+          /tmp/mcq_quality_test
+      - name: Check frontend JavaScript syntax
+        run: node --check frontend/script.js
+      - name: Run frontend MCQ formatting tests
+        run: node tests/mcq_format.test.js
