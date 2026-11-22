@@ -394,7 +394,7 @@ static enum MHD_Result handle_start_quiz(
 
         return send_error(
             connection,
-            MHD_HTTP_BAD_REQUEST,
+            MHD_HTTP_BAD_GATEWAY,
             "AI question generation failed. Check Render logs for the [AI] Gemini error response; the website quiz uses live Gemini generation."
         );
     }
