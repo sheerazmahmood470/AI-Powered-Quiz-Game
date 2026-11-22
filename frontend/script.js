@@ -837,7 +837,7 @@ function showQuizScreen() {
     const submitButton = $("#submit-answer-btn");
 
     setVisible(nextButton, false);
-    if (nextButton) nextButton.textContent = questionNumber >= totalQuestions ? "Finish Quiz" : "Next Question";
+    // Question numbering is set only when renderQuestion() receives the preloaded item.
 
     if (submitButton) {
         submitButton.disabled = true;
