@@ -57,7 +57,15 @@ static int seed_key(PGconn *db, const char *key, const char *path) {
 }
 
 int storage_init(void) {
-    if (!storage_is_configured()) return 1;
+    if (!storage_is_configured()) {
+        const char *required = getenv("QUIZ_REQUIRE_DATABASE");
+        if (required && (!strcmp(required, "1") || !strcmp(required, "true") || !strcmp(required, "yes"))) {
+            fprintf(stderr, "[STORAGE] DATABASE_URL is required but is not configured. Refusing temporary storage.\\n");
+            return 0;
+        }
+        fprintf(stderr, "[STORAGE] Neon not configured; using local development storage.\\n");
+        return 1;
+    }
     PGconn *db = open_database();
     if (!db) {
         fprintf(stderr, "[STORAGE] PostgreSQL connection failed. Check DATABASE_URL and Neon status.\n");
@@ -156,6 +164,7 @@ int storage_init(void) {
     }
 
     if (!ok) fprintf(stderr, "[STORAGE] PostgreSQL schema or history migration failed.\n");
+    if (ok) fprintf(stderr, "[STORAGE] Neon PostgreSQL connected; quiz history and reviews are persistent.\\n");
     PQfinish(db);
     return ok;
 }
