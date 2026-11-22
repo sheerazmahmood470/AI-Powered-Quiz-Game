@@ -104,6 +104,9 @@ static enum MHD_Result send_json(
         "Content-Type",
         "application/json; charset=utf-8"
     );
+    MHD_add_response_header(response, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    MHD_add_response_header(response, "Pragma", "no-cache");
+    MHD_add_response_header(response, "Expires", "0");
 
     add_cors_headers(response);
 
@@ -734,22 +737,32 @@ static enum MHD_Result handle_health_check(
     struct MHD_Connection *connection
 ) {
     cJSON *json = cJSON_CreateObject();
-
     if (!json) return MHD_NO;
 
+    const char *configured_history = getenv("QUIZ_HISTORY_FILE");
+    int storage_configured = configured_history && configured_history[0];
+    FILE *history_file = fopen(history_file_path(), "rb");
+    int storage_ready = history_file != NULL;
+    if (history_file) fclose(history_file);
+
+    char *history_data = read_history_file();
+    cJSON *history_json = history_data ? cJSON_Parse(history_data) : NULL;
+    int history_readable = cJSON_IsArray(history_json);
+    int history_records = history_readable ? cJSON_GetArraySize(history_json) : 0;
+    free(history_data);
+    cJSON_Delete(history_json);
+
     cJSON_AddStringToObject(json, "status", "online");
+    cJSON_AddStringToObject(json, "message", "C backend connected");
+    cJSON_AddBoolToObject(json, "history_storage_configured", storage_configured);
+    cJSON_AddBoolToObject(json, "history_storage_ready", storage_ready);
+    cJSON_AddBoolToObject(json, "history_readable", history_readable);
+    cJSON_AddNumberToObject(json, "history_records", history_records);
+    cJSON_AddStringToObject(json, "history_storage",
+        storage_ready && storage_configured ? "persistent-path-ready" :
+        (storage_configured ? "persistent-path-not-ready" : "ephemeral-default"));
 
-    cJSON_AddStringToObject(
-        json,
-        "message",
-        "C backend connected"
-    );
-
-    return send_json(
-        connection,
-        MHD_HTTP_OK,
-        json
-    );
+    return send_json(connection, MHD_HTTP_OK, json);
 }
 
 /* ================= REQUEST COMPLETED ================= */
