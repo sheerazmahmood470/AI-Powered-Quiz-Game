@@ -1514,6 +1514,34 @@ img {
   margin-top: 25px;
 }
 
+/* Previous-question control: match the primary quiz buttons with its own accent. */
+.quiz-controls #previous-question-btn {
+  min-height: 49px;
+  padding: 0 23px;
+  background: linear-gradient(135deg, #5267b8, #7656a8);
+  border: 1px solid #5267b8;
+  border-radius: 7px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  transition: .3s ease;
+}
+
+.quiz-controls #previous-question-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4359a8, #654694);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 25px rgba(82, 103, 184, .2);
+}
+
+.quiz-controls #previous-question-btn:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
 /* =========================================
    RESULTS
 ========================================= */
