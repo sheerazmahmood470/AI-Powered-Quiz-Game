@@ -3658,3 +3658,18 @@ tbody tr:last-child td {
   .mobile-nav-toggle-icon span, .topbar .search-box { transition: none !important; }
   .sidebar.mobile-nav-open nav { animation: none !important; }
 }
+
+
+/* Preserve desktop header icon sizing after adding dedicated mobile SVGs. */
+.mobile-search-icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.mobile-student-icon { display: none; }
