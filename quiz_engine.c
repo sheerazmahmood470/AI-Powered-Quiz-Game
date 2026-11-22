@@ -405,6 +405,11 @@ static int load_history(
 
     int count = 0;
 
+    if (!cJSON_IsArray(root)) {
+        cJSON_Delete(root);
+        return -1; /* Never overwrite a damaged history file as if it were empty. */
+    }
+
     if (cJSON_IsArray(root)) {
         cJSON *item;
 
@@ -653,7 +658,7 @@ int quiz_engine_submit_answer(
 
         int history_count = load_history(records);
 
-        if (history_count < MAX_HISTORY) {
+        if (history_count >= 0 && history_count < MAX_HISTORY) {
             HistoryRecord *record = &records[history_count];
 
             snprintf(
