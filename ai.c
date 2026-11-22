@@ -515,6 +515,12 @@ void *generate_questions(void *arg) {
         long status = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
 
+        /* Log Google's error response (never the API key) to diagnose rejected requests. */
+        if (status != 200 && response.data) {
+            fprintf(stderr, "[AI] Gemini error response for key slot %d: %.1200s\\n",
+                    i + 1, response.data);
+        }
+
         int accepted = 0;
         if (result == CURLE_OK && status == 200 && response.data) {
             task->success = 0;
