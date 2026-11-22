@@ -39,3 +39,9 @@ const showScreenBody = frontend.slice(showScreenStart, showScreenEnd);
 assert(!/\bquestionNumber\b/.test(showScreenBody), "showQuizScreen must not reference an out-of-scope questionNumber");
 assert(!/\btotalQuestions\b/.test(showScreenBody), "showQuizScreen must not reference an out-of-scope totalQuestions");
 assert(showScreenBody.includes("setVisible(quizScreen, true)"), "quiz screen must be shown before question rendering");
+
+assert(frontend.includes("function previousQuestion()"), "previous-question review navigation must exist");
+assert(frontend.includes("selectedAnswer = quizAnswers[currentQuestionIndex] || null"), "review must restore the saved selection");
+assert(frontend.includes("showAnswerFeedback({correct:selectedAnswer === correctAnswer"), "answer submission must immediately show right/wrong feedback");
+assert(server.includes('cJSON_AddStringToObject(json, "correct_answer", correct_answer)'), "question payload must include correct answer");
+assert(server.includes('cJSON_AddStringToObject(json, "explanation", question->explanation)'), "question payload must include explanation");
