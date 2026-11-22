@@ -838,7 +838,7 @@ static enum MHD_Result reviews_post(struct MHD_Connection *c,const char *body){
     cJSON_AddStringToObject(entry,"id",id);cJSON_AddStringToObject(entry,"name",name);cJSON_AddNumberToObject(entry,"rating",rating->valueint);
     cJSON_AddStringToObject(entry,"title",title);cJSON_AddStringToObject(entry,"message",message);cJSON_AddStringToObject(entry,"suggestion",suggestion?suggestion:"");cJSON_AddNumberToObject(entry,"timestamp",now);cJSON_Delete(in);
     pthread_mutex_lock(&reviews_mutex);cJSON *root=read_reviews();int ok=root&&cJSON_GetArraySize(root)<5000;
-    if(ok){cJSON_AddItemToArray(root,entry);ok=save_reviews(root);}if(!ok)cJSON_Delete(entry);cJSON_Delete(root);pthread_mutex_unlock(&reviews_mutex);
+    int appended=0;if(ok){cJSON_AddItemToArray(root,entry);appended=1;ok=save_reviews(root);}if(!appended)cJSON_Delete(entry);cJSON_Delete(root);pthread_mutex_unlock(&reviews_mutex);
     if(!ok)return send_error(c,MHD_HTTP_INSUFFICIENT_STORAGE,"Your review could not be saved. Please try again.");
     cJSON *out=cJSON_CreateObject();if(!out)return MHD_NO;cJSON_AddBoolToObject(out,"success",1);cJSON_AddStringToObject(out,"message","Thank you. Your review has been published.");
     return send_json(c,MHD_HTTP_CREATED,out);
