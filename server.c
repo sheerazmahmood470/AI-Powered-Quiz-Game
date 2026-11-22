@@ -135,7 +135,12 @@ static enum MHD_Result send_error(
 /* ================= READ HISTORY ================= */
 
 static char *read_history_file(void) {
-    FILE *file = fopen(HISTORY_FILE, "rb");
+    FILE *file = fopen(history_file_path(), "rb");
+
+    /* Keep compatibility with the bundled history file on first boot. */
+    if (!file && strcmp(history_file_path(), "history.json") != 0) {
+        file = fopen("history.json", "rb");
+    }
 
     if (!file) return NULL;
 
