@@ -1157,6 +1157,12 @@ function nextQuestion() {
 // -------------------- QUIZ RESULTS --------------------
 
 function showQuizResults(data) {
+    /* The active quiz batch is disposable: release it as soon as the quiz
+       is completed. The server-side rolling history remains for no-repeat. */
+    quizQuestionCache = [];
+    currentQuestionIndex = 0;
+    window.quizNextQuestion = null;
+
     const quizScreen = $("#quiz-screen");
     const resultScreen = $("#quiz-result-screen");
 
