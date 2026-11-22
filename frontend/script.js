@@ -388,17 +388,29 @@ function normalizeHistory(data) {
     return [];
 }
 
+let historyRequestVersion = 0;
+
 async function loadHistoryData() {
+    const requestVersion = ++historyRequestVersion;
+
     try {
-        const data = await apiRequest("/api/history");
-        historyData = normalizeHistory(data);
+        const data = await apiRequest("/api/history", {
+            cache: "no-store",
+            headers: { "Cache-Control": "no-cache" }
+        });
+        const freshRecords = normalizeHistory(data);
+
+        // Ignore an older response that arrived after a newer refresh.
+        if (requestVersion === historyRequestVersion) {
+            historyData = freshRecords;
+        }
 
         return historyData;
     } catch (error) {
-        console.error("History loading failed:", error);
-        historyData = [];
+        console.error("History loading failed; retaining last confirmed records:", error);
 
-        return [];
+        // A temporary network/API failure must never replace valid stats with zero.
+        return historyData;
     }
 }
 
@@ -1302,17 +1314,21 @@ function renderAnalyticsChart(records) {
     if (!canvas || typeof Chart === "undefined") return;
 
     const recentRecords = records.slice(-10);
+    const firstQuizNumber = Math.max(1, records.length - recentRecords.length + 1);
+    const labels = recentRecords.map((record, index) =>
+        `Quiz ${firstQuizNumber + index}`
+    );
+    const scores = recentRecords.map((record) =>
+        Math.round(getRecordStats(record).percentage)
+    );
 
-    const labels = recentRecords.map((record, index) => {
-        const stats = getRecordStats(record);
-
-        return stats.date
-            ? formatDate(stats.date)
-            : `Quiz ${index + 1}`;
-    });
-
-    const scores = recentRecords.map((record) => {
-        return Math.round(getRecordStats(record).percentage);
+    // A real rolling average smooths the visual trend without changing the source scores.
+    const rollingAverage = scores.map((score, index) => {
+        const windowScores = scores.slice(Math.max(0, index - 2), index + 1);
+        return Math.round(
+            windowScores.reduce((sum, value) => sum + value, 0) /
+            windowScores.length
+        );
     });
 
     if (analyticsChart) {
@@ -1321,33 +1337,52 @@ function renderAnalyticsChart(records) {
 
     analyticsChart = new Chart(canvas, {
         type: "line",
-
         data: {
             labels,
-
-            datasets: [{
-                label: "Quiz Score",
-                data: scores,
-                borderColor: "#345b48",
-                backgroundColor: "rgba(52, 91, 72, 0.10)",
-                borderWidth: 3,
-                fill: true,
-                tension: 0.35,
-                pointRadius: 5,
-                pointHoverRadius: 7
-            }]
+            datasets: [
+                {
+                    label: "Quiz score",
+                    data: scores,
+                    borderColor: "#345b48",
+                    backgroundColor: "rgba(52, 91, 72, 0.10)",
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 5,
+                    pointHoverRadius: 7
+                },
+                {
+                    label: "3-quiz average",
+                    data: rollingAverage,
+                    borderColor: "#d39a45",
+                    backgroundColor: "transparent",
+                    borderWidth: 2,
+                    borderDash: [6, 5],
+                    fill: false,
+                    tension: 0.35,
+                    pointRadius: 2,
+                    pointHoverRadius: 5
+                }
+            ]
         },
-
         options: {
             responsive: true,
             maintainAspectRatio: false,
-
+            interaction: {
+                mode: "index",
+                intersect: false
+            },
             plugins: {
                 legend: {
-                    display: false
+                    display: true,
+                    position: "bottom"
+                },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => items.length ? items[0].label : ""
+                    }
                 }
             },
-
             scales: {
                 y: {
                     beginAtZero: true,
@@ -1356,7 +1391,6 @@ function renderAnalyticsChart(records) {
                         callback: (value) => `${value}%`
                     }
                 },
-
                 x: {
                     grid: {
                         display: false
