@@ -1514,12 +1514,12 @@ img {
   margin-top: 25px;
 }
 
-/* Previous-question control: match the primary quiz buttons with its own accent. */
+/* Previous-question control: same dimensions, with a subtle lighter-green accent. */
 .quiz-controls #previous-question-btn {
   min-height: 49px;
   padding: 0 23px;
-  background: linear-gradient(135deg, #5267b8, #7656a8);
-  border: 1px solid #5267b8;
+  background: linear-gradient(135deg, #527b63, #648b70);
+  border: 1px solid #527b63;
   border-radius: 7px;
   color: #fff;
   font-size: 12px;
@@ -1532,9 +1532,9 @@ img {
 }
 
 .quiz-controls #previous-question-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #4359a8, #654694);
+  background: linear-gradient(135deg, #456e56, #567e62);
   transform: translateY(-3px);
-  box-shadow: 0 12px 25px rgba(82, 103, 184, .2);
+  box-shadow: 0 12px 25px rgba(82, 123, 99, .2);
 }
 
 .quiz-controls #previous-question-btn:disabled {
