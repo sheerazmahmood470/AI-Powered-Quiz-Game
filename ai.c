@@ -517,7 +517,7 @@ void *generate_questions(void *arg) {
 
         /* Log Google's error response (never the API key) to diagnose rejected requests. */
         if (status != 200 && response.data) {
-            fprintf(stderr, "[AI] Gemini error response for key slot %d: %.1200s\\n",
+            fprintf(stderr, "[AI] Gemini error response for key slot %d: %.1200s\n",
                     i + 1, response.data);
         }
 
