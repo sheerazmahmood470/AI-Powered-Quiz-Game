@@ -16,7 +16,7 @@ typedef struct {
 typedef struct {
     char topic[80];
     int count;
-    Question excluded[5];
+    Question excluded[8];
     int excluded_count;
     Question generated[MAX_QUESTIONS];
     int generated_count;

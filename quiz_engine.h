@@ -27,6 +27,12 @@ int quiz_engine_start(
     const char *topic,
     int question_count
 );
+int quiz_engine_start_offline(
+    WebQuizSession *session,
+    const char *player,
+    const char *topic,
+    int question_count
+);
 
 int quiz_engine_submit_answer(
     WebQuizSession *session,

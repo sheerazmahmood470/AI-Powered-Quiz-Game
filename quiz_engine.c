@@ -1,3 +1,4 @@
+
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>
@@ -190,6 +191,11 @@ static int load_bank(
 
     fclose(file);
 
+    if (got != (size_t)length) {
+        free(data);
+        return 0;
+    }
+
     cJSON *root = cJSON_Parse(data);
     free(data);
 
@@ -224,6 +230,10 @@ static int save_bank(
     Question bank[MAX_BANK],
     int count
 ) {
+    if (!path || !bank || count < 0 || count > MAX_BANK) {
+        return 0;
+    }
+
     cJSON *root = cJSON_CreateObject();
 
     if (!root) return 0;
@@ -274,7 +284,9 @@ static int save_bank(
 
     int ok = fputs(data, file) >= 0;
 
-    if (fclose(file) != 0) ok = 0;
+    if (fclose(file) != 0) {
+        ok = 0;
+    }
 
     free(data);
 
@@ -284,6 +296,46 @@ static int save_bank(
     }
 
     return 1;
+}
+
+/* ================= DUPLICATE CHECK ================= */
+
+static int same_question(const Question *a, const Question *b) {
+    if (!a || !b) return 0;
+
+    const unsigned char *x =
+        (const unsigned char *)a->question;
+
+    const unsigned char *y =
+        (const unsigned char *)b->question;
+
+    while (*x || *y) {
+        while (*x && !isalnum(*x)) x++;
+        while (*y && !isalnum(*y)) y++;
+
+        if (tolower(*x) != tolower(*y)) {
+            return 0;
+        }
+
+        if (*x) x++;
+        if (*y) y++;
+    }
+
+    return 1;
+}
+
+static int question_exists(
+    const Question *question,
+    const Question *bank,
+    int count
+) {
+    for (int i = 0; i < count; i++) {
+        if (same_question(question, &bank[i])) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 /* ================= SHUFFLE QUESTIONS ================= */
@@ -483,30 +535,21 @@ int quiz_engine_start(
     pthread_mutex_lock(&quiz_start_mutex);
 
     int success = 0;
+    Question *bank = NULL;
 
     memset(session, 0, sizeof(*session));
 
-    snprintf(
-        session->player,
-        sizeof(session->player),
-        "%s",
-        player
-    );
+    snprintf(session->player, sizeof(session->player),
+             "%s", player);
 
-    snprintf(
-        session->topic,
-        sizeof(session->topic),
-        "%s",
-        field_names[topic_index]
-    );
+    snprintf(session->topic, sizeof(session->topic),
+             "%s", field_names[topic_index]);
 
     mkdir("questions", 0777);
 
-    Question *bank = calloc(MAX_BANK, sizeof(Question));
+    bank = calloc(MAX_BANK, sizeof(Question));
 
-    if (!bank) {
-        goto cleanup;
-    }
+    if (!bank) goto cleanup;
 
     int bank_count = load_bank(
         field_files[topic_index],
@@ -517,82 +560,158 @@ int quiz_engine_start(
         shuffle_questions(bank, bank_count);
     }
 
-    int local_count =
-        bank_count < question_count ? bank_count : question_count;
+    /*
+       Required online split:
+       10 questions = 5 local + 5 AI
+       15 questions = 7 local + 8 AI
+    */
+
+    int bank_target = (question_count == 10) ? 5 : 7;
+    int ai_needed = question_count - bank_target;
+
+    /*
+       Online mode must have the required number of local questions.
+       Otherwise terminal.c can try offline mode.
+    */
+
+    if (bank_count < bank_target) {
+        printf("\n[AI] Not enough local questions for the online split.\n");
+        printf("[AI] Required local questions: %d\n", bank_target);
+        printf("[AI] Available local questions: %d\n", bank_count);
+        goto cleanup;
+    }
+
+    int local_count = bank_target;
 
     for (int i = 0; i < local_count; i++) {
         session->questions[i] = bank[i];
     }
 
-    int ai_needed = question_count - local_count;
+    AiTask task;
+    memset(&task, 0, sizeof(task));
 
-    if (ai_needed > 0) {
-        AiTask task;
+    snprintf(task.topic, sizeof(task.topic),
+             "%s", field_names[topic_index]);
 
-        memset(&task, 0, sizeof(task));
+    task.count = ai_needed;
 
-        snprintf(
-            task.topic,
-            sizeof(task.topic),
-            "%s",
-            field_names[topic_index]
-        );
+    task.excluded_count = local_count;
 
-        task.count = ai_needed;
-
-        task.excluded_count = local_count < 5
-            ? local_count
-            : 5;
-
-        for (int i = 0; i < task.excluded_count; i++) {
-            task.excluded[i] = bank[i];
-        }
-
-        remove("cache.json");
-
-        generate_questions(&task);
-
-        if (task.success && task.generated_count > 0) {
-            int available = task.generated_count;
-
-            if (available > ai_needed) {
-                available = ai_needed;
-            }
-
-            for (int i = 0; i < available; i++) {
-                session->questions[local_count + i] =
-                    task.generated[i];
-            }
-
-            local_count += available;
-
-            int existing = load_bank(
-                field_files[topic_index],
-                bank
-            );
-
-            if (existing + task.generated_count <= MAX_BANK) {
-                for (int i = 0; i < task.generated_count; i++) {
-                    bank[existing + i] = task.generated[i];
-                }
-
-                save_bank(
-                    field_files[topic_index],
-                    bank,
-                    existing + task.generated_count
-                );
-            }
-        }
-
-        remove("cache.json");
+    for (int i = 0; i < task.excluded_count; i++) {
+        task.excluded[i] = bank[i];
     }
 
-    if (local_count == 0) {
-        free(bank);
+    remove("cache.json");
+
+    printf("\n[AI] Generating %d AI questions...\n", ai_needed);
+
+    generate_questions(&task);
+
+    printf("[AI] Generation status: %s\n",
+           task.success ? "SUCCESS" : "FAILED");
+
+    printf("[AI] Questions received: %d/%d\n",
+           task.generated_count, ai_needed);
+
+    /*
+       The online quiz requires the complete AI question count.
+       Partial generation must not silently become a local-only quiz.
+    */
+
+    if (!task.success || task.generated_count != ai_needed) {
+        printf("[AI] Required AI question count was not generated.\n");
+        remove("cache.json");
         goto cleanup;
     }
 
-    session->total_questions = local_count;
+    int accepted_ai = 0;
+
+    for (int i = 0; i < task.generated_count; i++) {
+        Question *candidate = &task.generated[i];
+
+        /* Check against the complete existing JSON bank. */
+        if (question_exists(candidate, bank, bank_count)) {
+            printf("[AI] Duplicate with existing JSON bank skipped.\n");
+            continue;
+        }
+
+        /* Check against questions already selected for this quiz. */
+        if (question_exists(
+            candidate,
+            session->questions,
+            local_count + accepted_ai
+        )) {
+            printf("[AI] Duplicate within generated questions skipped.\n");
+            continue;
+        }
+
+        session->questions[local_count + accepted_ai] = *candidate;
+        accepted_ai++;
+    }
+
+    printf("[AI] Unique questions accepted: %d/%d\n",
+           accepted_ai, ai_needed);
+
+    /*
+       Do not start online mode if duplicates leave fewer AI questions
+       than required. Terminal can then use offline fallback.
+    */
+
+    if (accepted_ai != ai_needed) {
+        printf("[AI] Not enough unique AI questions were accepted.\n");
+        remove("cache.json");
+        goto cleanup;
+    }
+
+    /*
+       Append accepted AI questions to the matching topic JSON file.
+       Save result is checked before online quiz can start.
+    */
+
+    if (bank_count + accepted_ai > MAX_BANK) {
+        printf("[SAVE] Question bank has reached its maximum capacity.\n");
+        remove("cache.json");
+        goto cleanup;
+    }
+
+    int saved_count = bank_count;
+
+    for (int i = 0; i < accepted_ai; i++) {
+        bank[saved_count++] =
+            session->questions[local_count + i];
+    }
+
+    printf("[SAVE] Saving %d new AI questions to %s...\n",
+           accepted_ai, field_files[topic_index]);
+
+    int save_result = save_bank(
+        field_files[topic_index],
+        bank,
+        saved_count
+    );
+
+    printf("[SAVE] Result: %s\n",
+           save_result ? "SUCCESS" : "FAILED");
+
+    printf("[SAVE] Total questions in JSON bank: %d\n",
+           save_result ? saved_count : bank_count);
+
+    remove("cache.json");
+
+    if (!save_result) {
+        printf("[SAVE] AI questions could not be saved. Online quiz cancelled.\n");
+        goto cleanup;
+    }
+
+    /*
+       At this point:
+       - Required local questions are selected.
+       - Required AI questions are selected.
+       - All selected questions passed duplicate checks.
+       - AI questions have been saved successfully.
+    */
+
+    session->total_questions = question_count;
     session->current_question = 0;
     session->correct_answers = 0;
     session->incorrect_answers = 0;
@@ -601,7 +720,6 @@ int quiz_engine_start(
     struct timespec now;
 
     if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-        free(bank);
         goto cleanup;
     }
 
@@ -609,11 +727,17 @@ int quiz_engine_start(
         (double)now.tv_sec +
         (double)now.tv_nsec / 1000000000.0;
 
-    free(bank);
     success = 1;
 
 cleanup:
+    free(bank);
+
+    if (!success) {
+        memset(session, 0, sizeof(*session));
+    }
+
     pthread_mutex_unlock(&quiz_start_mutex);
+
     return success;
 }
 
@@ -738,4 +862,131 @@ int quiz_engine_submit_answer(
     }
 
     return correct ? 1 : 0;
+}
+
+/* ================= OFFLINE TERMINAL QUIZ ================= */
+
+int quiz_engine_start_offline(
+    WebQuizSession *session,
+    const char *player,
+    const char *topic,
+    int question_count
+) {
+    if (!session || !player || !topic) return 0;
+
+    if (question_count != 10 && question_count != 15) {
+        return 0;
+    }
+
+    int topic_index = get_topic_index(topic);
+
+    if (topic_index < 0) return 0;
+
+    size_t player_length = strlen(player);
+
+    if (player_length == 0 ||
+        player_length >= sizeof(session->player)) {
+        return 0;
+    }
+
+    int has_non_space = 0;
+
+    for (size_t i = 0; player[i]; i++) {
+        if (!isspace((unsigned char)player[i])) {
+            has_non_space = 1;
+            break;
+        }
+    }
+
+    if (!has_non_space) return 0;
+
+    pthread_mutex_lock(&quiz_start_mutex);
+
+    Question *bank = calloc(MAX_BANK, sizeof(Question));
+
+    if (!bank) {
+        pthread_mutex_unlock(&quiz_start_mutex);
+        return 0;
+    }
+
+    int bank_count = load_bank(
+        field_files[topic_index],
+        bank
+    );
+
+    /*
+     * The bank must contain enough valid entries to potentially
+     * build the requested quiz. Duplicate entries are filtered below.
+     */
+
+    if (bank_count < question_count) {
+        free(bank);
+        pthread_mutex_unlock(&quiz_start_mutex);
+        return 0;
+    }
+
+    shuffle_questions(bank, bank_count);
+
+    memset(session, 0, sizeof(*session));
+
+    snprintf(session->player, sizeof(session->player),
+             "%s", player);
+
+    snprintf(session->topic, sizeof(session->topic),
+             "%s", field_names[topic_index]);
+
+    int selected_count = 0;
+
+    for (int i = 0;
+         i < bank_count && selected_count < question_count;
+         i++) {
+
+        /* Skip a question if its normalized text is already selected. */
+        if (question_exists(
+            &bank[i],
+            session->questions,
+            selected_count
+        )) {
+            continue;
+        }
+
+        session->questions[selected_count] = bank[i];
+        selected_count++;
+    }
+
+    /*
+     * Do not start an incomplete quiz if the JSON bank does not
+     * contain enough unique questions.
+     */
+
+    if (selected_count != question_count) {
+        free(bank);
+        pthread_mutex_unlock(&quiz_start_mutex);
+        memset(session, 0, sizeof(*session));
+        return 0;
+    }
+
+    session->total_questions = question_count;
+    session->current_question = 0;
+    session->correct_answers = 0;
+    session->incorrect_answers = 0;
+    session->completed = 0;
+
+    struct timespec now;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+        free(bank);
+        pthread_mutex_unlock(&quiz_start_mutex);
+        memset(session, 0, sizeof(*session));
+        return 0;
+    }
+
+    session->start_time =
+        (double)now.tv_sec +
+        (double)now.tv_nsec / 1000000000.0;
+
+    free(bank);
+    pthread_mutex_unlock(&quiz_start_mutex);
+
+    return 1;
 }
