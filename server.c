@@ -195,7 +195,8 @@ static char *read_history_file(void) {
     }
 
     /* Without an explicitly configured disk, use the bundled local history. */
-    if (!file && !getenv("QUIZ_HISTORY_FILE")) {
+    const char *configured = getenv("QUIZ_HISTORY_FILE");
+    if (!file && (!configured || !configured[0])) {
         file = fopen("history.json", "rb");
     }
 
