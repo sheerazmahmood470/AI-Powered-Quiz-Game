@@ -188,7 +188,7 @@ static int migrate_bundled_history(void) {
 }
 
 static char *read_history_file(void) {
-    if (storage_is_configured()) return storage_read_json("history");
+    if (storage_is_configured()) return storage_read_history_json();
     FILE *file = fopen(history_file_path(), "rb");
 
     /* Migrate the bundled seed exactly once into the configured persistent disk. */
@@ -826,7 +826,7 @@ static enum MHD_Result handle_health_check(struct MHD_Connection *connection) {
     cJSON *json = cJSON_CreateObject();
     if (!json) return MHD_NO;
     int db_configured = storage_is_configured();
-    char *data = db_configured ? storage_read_json("history") : read_history_file();
+    char *data = db_configured ? storage_read_history_json() : read_history_file();
     cJSON *history = data ? cJSON_Parse(data) : NULL;
     int readable = cJSON_IsArray(history);
     int count = readable ? cJSON_GetArraySize(history) : 0;
