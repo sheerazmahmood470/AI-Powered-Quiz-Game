@@ -18,6 +18,8 @@ int main(void) {
 
     assert(has_unrendered_math_command("Use \\frac{1}{2}"));
     assert(!has_unrendered_math_command("n × sizeof(T)"));
+    assert(has_unrendered_math_command("printf(\"x\") + \\frac{1}{2}"));
+    assert(!has_unrendered_math_command("printf(\"\\n\")"));
 
     Question first = {0}, second = {0};
     snprintf(first.question, sizeof(first.question),
