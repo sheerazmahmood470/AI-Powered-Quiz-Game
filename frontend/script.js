@@ -882,112 +882,77 @@ function normalizeOptions(options) {
 // -------------------- QUESTION RENDERING --------------------
 
 function renderQuestion(question) {
-    if (!question) {
-        showToast("Question data is missing.");
-        return;
-    }
+    if (!question) { showToast("Question data is missing."); return; }
 
     currentQuestion = question;
-    selectedAnswer = null;
-    answerSubmitted = false;
+    selectedAnswer = quizAnswers[currentQuestionIndex] || null;
+    answerSubmitted = Boolean(selectedAnswer);
     answerSubmitting = false;
 
-    const questionNumber = Number(question.number || 1);
-    const totalQuestions = Number(
-        question.total || getQuestionCount()
-    );
-
+    const questionNumber = Number(question.number || (currentQuestionIndex + 1));
+    const totalQuestions = Number(question.total || getQuestionCount());
     const counter = $("#quiz-question-counter");
     const progressText = $("#quiz-progress-text");
     const progressBar = $("#quiz-progress-bar");
     const questionText = $("#quiz-question");
     const optionsContainer = $("#quiz-options");
     const feedback = $("#quiz-feedback");
+    const previousButton = $("#previous-question-btn");
     const nextButton = $("#next-question-btn");
     const submitButton = $("#submit-answer-btn");
 
-    if (counter) {
-        counter.textContent =
-            `QUESTION ${questionNumber} OF ${totalQuestions}`;
+    if (counter) counter.textContent = `QUESTION ${questionNumber} OF ${totalQuestions}`;
+    if (progressText) progressText.textContent = `${questionNumber} / ${totalQuestions}`;
+    if (progressBar) progressBar.style.width = `${(questionNumber / Math.max(1,totalQuestions))*100}%`;
+    if (questionText) questionText.textContent = normalizeDisplayText(question.question || "Question unavailable.");
+    if (feedback) feedback.innerHTML = "";
+
+    if (previousButton) {
+        previousButton.hidden = currentQuestionIndex <= 0;
+        previousButton.disabled = currentQuestionIndex <= 0;
     }
-
-    if (progressText) {
-        progressText.textContent =
-            `${questionNumber} / ${totalQuestions}`;
+    setVisible(nextButton, answerSubmitted);
+    if (nextButton) {
+        nextButton.disabled = !answerSubmitted;
+        nextButton.textContent = currentQuestionIndex + 1 >= quizQuestionCache.length ? "Finish Quiz" : "Next Question →";
     }
-
-    if (progressBar) {
-        const percentage =
-            (questionNumber / Math.max(1, totalQuestions)) * 100;
-
-        progressBar.style.width = `${percentage}%`;
-    }
-
-    if (questionText) {
-        questionText.textContent =
-            normalizeDisplayText(question.question || "Question unavailable.");
-    }
-
-    if (feedback) {
-        feedback.innerHTML = "";
-    }
-
-    setVisible(nextButton, false);
-
     if (submitButton) {
-        submitButton.disabled = true;
-        submitButton.textContent = "Submit answer ↗";
+        submitButton.disabled = !selectedAnswer || answerSubmitted;
+        submitButton.textContent = answerSubmitted ? "Answer saved" : "Submit answer ↗";
     }
 
-    if (!optionsContainer) {
-        console.error("Quiz options container not found.");
-        return;
-    }
-
+    if (!optionsContainer) { console.error("Quiz options container not found."); return; }
     const options = normalizeOptions(question.options);
-
     const optionSignatures = options.map((option) =>
         normalizeDisplayText(option.text).toLowerCase().replace(/[^a-z0-9]/g, "")
     );
-    const optionsAreValid =
-        options.length === 4 &&
+    const optionsAreValid = options.length === 4 &&
         options.every((option) => option.text.trim()) &&
         new Set(optionSignatures).size === 4;
-
     if (!optionsAreValid) {
-        optionsContainer.innerHTML = `
-            <p class="quiz-error">
-                This question did not pass the answer-option quality check. Please generate a new quiz.
-            </p>
-        `;
+        optionsContainer.innerHTML = '<p class="quiz-error">This question did not pass the answer-option quality check. Please generate a new quiz.</p>';
         if (submitButton) submitButton.disabled = true;
         return;
     }
 
     optionsContainer.innerHTML = options.map((option) => `
-        <button
-            type="button"
-            class="quiz-option"
-            data-answer="${escapeHTML(option.letter)}"
-        >
-            <span class="option-letter">
-                ${escapeHTML(option.letter)}
-            </span>
-
-            <span class="option-text">
-                ${escapeHTML(option.text)}
-            </span>
+        <button type="button" class="quiz-option ${selectedAnswer === option.letter ? "selected" : ""}"
+            data-answer="${escapeHTML(option.letter)}" ${answerSubmitted ? "disabled" : ""}>
+            <span class="option-letter">${escapeHTML(option.letter)}</span>
+            <span class="option-text">${escapeHTML(option.text)}</span>
         </button>
     `).join("");
 
     $$(".quiz-option").forEach((button) => {
         button.addEventListener("click", () => {
             if (answerSubmitted) return;
-
             selectAnswer(button.dataset.answer);
         });
     });
 
+    if (answerSubmitted && feedback) {
+        feedback.innerHTML = '<div class="answer-feedback"><div class="feedback-heading">Answer saved</div><p>Your selection is محفوظ. You can review this question or continue.</p></div>';
+    }
     updateSubmitButton();
 }
 
@@ -1100,8 +1065,16 @@ function showAnswerFeedback(data) {
 
 // -------------------- NEXT QUESTION --------------------
 
+function previousQuestion() {
+    if (quizCompleting || currentQuestionIndex <= 0) return;
+    currentQuestionIndex--;
+    const previous = quizQuestionCache[currentQuestionIndex];
+    if (!previous) { currentQuestionIndex++; showToast("Previous question is unavailable."); return; }
+    renderQuestion(previous);
+}
+
 function nextQuestion() {
-    if (!answerSubmitted) { showToast("Please submit your selected answer first."); return; }
+    if (!answerSubmitted) { showToast("Please select and save your answer first."); return; }
     if (quizCompleting) return;
     if (currentQuestionIndex + 1 >= quizQuestionCache.length) { completeQuiz(); return; }
     const next = quizQuestionCache[currentQuestionIndex + 1];
