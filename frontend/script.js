@@ -14,6 +14,8 @@ let quizSessionId = null;
 let currentQuestion = null;
 let quizQuestionCache = [];
 let currentQuestionIndex = 0;
+let quizAnswers = [];
+let quizCompleting = false;
 let selectedAnswer = null;
 let quizStartTime = null;
 let answerSubmitted = false;
@@ -781,7 +783,12 @@ async function startQuiz() {
             && data.question_cache.length === questionCount
             ? data.question_cache
             : [];
+        if (quizQuestionCache.length !== questionCount) {
+            throw new Error("The complete question batch was not preloaded. Please start the quiz again.");
+        }
         currentQuestionIndex = 0;
+        quizAnswers = Array(questionCount).fill("");
+        quizCompleting = false;
 
         selectedAnswer = null;
         answerSubmitted = false;
@@ -830,6 +837,7 @@ function showQuizScreen() {
     const submitButton = $("#submit-answer-btn");
 
     setVisible(nextButton, false);
+    if (nextButton) nextButton.textContent = questionNumber >= totalQuestions ? "Finish Quiz" : "Next Question";
 
     if (submitButton) {
         submitButton.disabled = true;
@@ -1009,67 +1017,27 @@ function updateSubmitButton() {
 
 // -------------------- SUBMIT ANSWER --------------------
 
-async function submitAnswer() {
-    if (!quizSessionId) {
-        showToast("Quiz session not found.");
-        return;
-    }
-
-    if (!selectedAnswer) {
-        showToast("Please select an answer.");
-        return;
-    }
-
+function submitAnswer() {
+    if (!quizSessionId) { showToast("Quiz session not found. Please start a new quiz."); return; }
+    if (!selectedAnswer) { showToast("Please select an answer."); return; }
     if (answerSubmitted || answerSubmitting) return;
 
-    /* Lock immediately, before the network request starts. This prevents
-       rapid/double clicks from submitting the same session question twice. */
+    /* Store locally; do not call the backend between questions. */
     answerSubmitting = true;
+    quizAnswers[currentQuestionIndex] = selectedAnswer;
+    answerSubmitted = true;
+    $$(".quiz-option").forEach((button) => { button.disabled = true; });
+    const feedback = $("#quiz-feedback");
+    if (feedback) feedback.innerHTML = '<div class="answer-feedback"><div class="feedback-heading">Answer saved</div><p>Your answer is recorded. Continue when you are ready.</p></div>';
     const submitButton = $("#submit-answer-btn");
-    setButtonLoading(submitButton, true);
-
-    try {
-        // Original C backend API request preserved.
-        const data = await apiRequest("/api/quiz/answer", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                session_id: quizSessionId,
-                answer: selectedAnswer
-            })
-        });
-
-        answerSubmitted = true;
-
-        window.quizNextQuestion = data.next_question || null;
-
-        showAnswerFeedback(data);
-
-        if (data.completed) {
-            showQuizResults(data);
-        } else {
-            const nextButton = $("#next-question-btn");
-            setVisible(nextButton, true);
-        }
-
-    } catch (error) {
-        answerSubmitting = false;
-        console.error("Answer submission error:", error);
-        showToast(error.message || "Unable to submit answer. Please retry once.");
-    } finally {
-        if (answerSubmitted) answerSubmitting = false;
-        setButtonLoading(
-            submitButton,
-            false,
-            "Submit answer ↗"
-        );
-
-        if (answerSubmitted && submitButton) {
-            submitButton.disabled = true;
-        }
+    if (submitButton) { submitButton.disabled = true; submitButton.textContent = "Answer saved"; }
+    const nextButton = $("#next-question-btn");
+    if (nextButton) {
+        nextButton.textContent = currentQuestionIndex + 1 >= quizQuestionCache.length ? "Finish Quiz" : "Next Question";
+        nextButton.disabled = false;
     }
+    setVisible(nextButton, true);
+    answerSubmitting = false;
 }
 
 // -------------------- ANSWER FEEDBACK --------------------
@@ -1132,26 +1100,36 @@ function showAnswerFeedback(data) {
 // -------------------- NEXT QUESTION --------------------
 
 function nextQuestion() {
-    if (!answerSubmitted) {
-        showToast("Submit your answer first.");
-        return;
-    }
-
-    /* Prefer the preloaded batch: moving between questions does not
-       fetch or wait for another question from the server. */
-    const cachedNext = quizQuestionCache[currentQuestionIndex + 1];
-    const next = cachedNext || window.quizNextQuestion;
-
-    if (!next) {
-        showToast("The next question is not available in this quiz cache.");
-        console.error("Missing cached and backend next question.");
-        return;
-    }
-
+    if (!answerSubmitted) { showToast("Please submit your selected answer first."); return; }
+    if (quizCompleting) return;
+    if (currentQuestionIndex + 1 >= quizQuestionCache.length) { completeQuiz(); return; }
+    const next = quizQuestionCache[currentQuestionIndex + 1];
+    if (!next) { showToast("A question is missing from the preloaded batch. Please restart the quiz."); return; }
     currentQuestionIndex++;
-    window.quizNextQuestion = null;
-
     renderQuestion(next);
+}
+
+async function completeQuiz() {
+    if (quizCompleting) return;
+    if (!quizSessionId || quizAnswers.length !== quizQuestionCache.length ||
+        quizAnswers.some((answer) => !/^[A-D]$/.test(answer))) {
+        showToast("Please answer every question before finishing."); return;
+    }
+    quizCompleting = true;
+    const button = $("#next-question-btn");
+    if (button) { button.disabled = true; button.textContent = "Saving result…"; }
+    try {
+        const data = await apiRequest("/api/quiz/complete", {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({session_id: quizSessionId, answers: quizAnswers})
+        });
+        showQuizResults(data);
+    } catch (error) {
+        console.error("Quiz completion failed:", error);
+        quizCompleting = false;
+        if (button) { button.disabled = false; button.textContent = "Retry Finish"; }
+        showToast(error.message || "Could not save the result. Tap Retry Finish.");
+    }
 }
 
 // -------------------- QUIZ RESULTS --------------------
@@ -1161,6 +1139,8 @@ function showQuizResults(data) {
        is completed. The server-side rolling history remains for no-repeat. */
     quizQuestionCache = [];
     currentQuestionIndex = 0;
+    quizAnswers = [];
+    quizCompleting = false;
     window.quizNextQuestion = null;
 
     const quizScreen = $("#quiz-screen");
@@ -1191,6 +1171,22 @@ function showQuizResults(data) {
         }
     });
 
+    const reviewContainer = $("#quiz-answer-review") || document.createElement("section");
+    reviewContainer.id = "quiz-answer-review";
+    reviewContainer.className = "quiz-answer-review";
+    if (!reviewContainer.parentNode) resultScreen.appendChild(reviewContainer);
+    const reviewItems = Array.isArray(data.answer_review) ? data.answer_review : [];
+    reviewContainer.innerHTML = reviewItems.length ? `
+        <h3>Answer Review</h3>
+        <div class="quiz-answer-review-list">
+            ${reviewItems.map((item) => `
+                <article class="quiz-answer-review-item ${item.correct ? "correct" : "incorrect"}">
+                    <strong>Q${Number(item.number) || ""}. ${escapeHTML(item.question || "")}</strong>
+                    <p>Your answer: <b>${escapeHTML(item.selected_answer || "")}</b> · Correct answer: <b>${escapeHTML(item.correct_answer || "")}</b></p>
+                    <p>${escapeHTML(normalizeDisplayText(item.explanation || ""))}</p>
+                </article>
+            `).join("")}
+        </div>` : "";
     loadDashboardData();
     loadAnalytics();
 
@@ -1212,7 +1208,11 @@ function resetQuiz() {
     answerSubmitting = false;
     quizQuestionCache = [];
     currentQuestionIndex = 0;
+    quizAnswers = [];
+    quizCompleting = false;
     quizStartTime = null;
+    const answerReview = $("#quiz-answer-review");
+    if (answerReview) answerReview.innerHTML = "";
     window.quizNextQuestion = null;
 
     setVisible($("#quiz-settings-card"), true);
