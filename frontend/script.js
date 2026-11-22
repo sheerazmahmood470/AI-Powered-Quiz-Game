@@ -12,6 +12,8 @@ const API_BASE = window.QUIZ_API_URL || "";
 
 let quizSessionId = null;
 let currentQuestion = null;
+let quizQuestionCache = [];
+let currentQuestionIndex = 0;
 let selectedAnswer = null;
 let quizStartTime = null;
 let answerSubmitted = false;
@@ -774,6 +776,11 @@ async function startQuiz() {
 
         quizSessionId = data.session_id;
         currentQuestion = receivedQuestion;
+        quizQuestionCache = Array.isArray(data.question_cache)
+            && data.question_cache.length === questionCount
+            ? data.question_cache
+            : [];
+        currentQuestionIndex = 0;
 
         selectedAnswer = null;
         answerSubmitted = false;
@@ -1123,14 +1130,18 @@ function nextQuestion() {
         return;
     }
 
-    const next = window.quizNextQuestion;
+    /* Prefer the preloaded batch: moving between questions does not
+       fetch or wait for another question from the server. */
+    const cachedNext = quizQuestionCache[currentQuestionIndex + 1];
+    const next = cachedNext || window.quizNextQuestion;
 
     if (!next) {
-        showToast("The backend did not send the next question.");
-        console.error("Missing next_question in answer response.");
+        showToast("The next question is not available in this quiz cache.");
+        console.error("Missing cached and backend next question.");
         return;
     }
 
+    currentQuestionIndex++;
     window.quizNextQuestion = null;
 
     renderQuestion(next);
