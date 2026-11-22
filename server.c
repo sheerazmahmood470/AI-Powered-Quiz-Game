@@ -796,11 +796,13 @@ static enum MHD_Result handle_health_check(
 
     const char *configured_history = getenv("QUIZ_HISTORY_FILE");
     int storage_configured = configured_history && configured_history[0];
+
+    /* Reading first also performs the one-time seed migration when needed. */
+    char *history_data = read_history_file();
     FILE *history_file = fopen(history_file_path(), "rb");
     int storage_ready = history_file != NULL;
     if (history_file) fclose(history_file);
 
-    char *history_data = read_history_file();
     cJSON *history_json = history_data ? cJSON_Parse(history_data) : NULL;
     int history_readable = cJSON_IsArray(history_json);
     int history_records = history_readable ? cJSON_GetArraySize(history_json) : 0;
