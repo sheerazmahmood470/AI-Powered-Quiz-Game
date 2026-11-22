@@ -31,3 +31,11 @@ assert(server.includes("persist_completed_quiz_session"), "completion must be id
 assert(engine.includes("int quiz_engine_submit_answers("), "backend must score a complete answer batch");
 
 console.log("Quiz flow tests: PASS");
+
+const showScreenStart = frontend.indexOf("function showQuizScreen() {");
+const showScreenEnd = frontend.indexOf("// -------------------- QUESTION OPTIONS", showScreenStart);
+assert(showScreenStart >= 0 && showScreenEnd > showScreenStart, "quiz screen setup must exist");
+const showScreenBody = frontend.slice(showScreenStart, showScreenEnd);
+assert(!/\\bquestionNumber\\b/.test(showScreenBody), "showQuizScreen must not reference an out-of-scope questionNumber");
+assert(!/\\btotalQuestions\\b/.test(showScreenBody), "showQuizScreen must not reference an out-of-scope totalQuestions");
+assert(showScreenBody.includes("setVisible(quizScreen, true)"), "quiz screen must be shown before question rendering");
