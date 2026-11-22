@@ -400,18 +400,6 @@ static int parse_generated_questions(
         task->generated_count = accepted;
         task->success = 1;
 
-        FILE *cache = fopen("cache.json", "w");
-
-        if (cache) {
-            char *saved = cJSON_Print(quiz);
-
-            if (saved) {
-                fprintf(cache, "%s\n", saved);
-                free(saved);
-            }
-
-            fclose(cache);
-        }
     }
 
     cJSON_Delete(quiz);
@@ -423,119 +411,151 @@ static int parse_generated_questions(
 
 void *generate_questions(void *arg) {
     AiTask *task = (AiTask *)arg;
-
     if (!task) return NULL;
 
     task->success = 0;
     task->generated_count = 0;
-
     memset(task->generated, 0, sizeof(task->generated));
 
-    if (task->count <= 0 ||
-        task->count > MAX_QUESTIONS ||
-        task->excluded_count < 0 ||
-        task->excluded_count > 8 ||
+    if (task->count <= 0 || task->count > MAX_QUESTIONS ||
+        task->excluded_count < 0 || task->excluded_count > 8 ||
         !has_text(task->topic)) {
+        fprintf(stderr, "[AI] Invalid generation request.\n");
         return NULL;
     }
 
-    const char *api_key = getenv("GEMINI_API_KEY");
-
-    if (!api_key || !api_key[0]) {
+    const char *key_names[] = {
+        "GEMINI_API_KEY",
+        "GEMINI_API_KEY_2",
+        "GEMINI_API_KEY_3",
+        "GEMINI_API_KEY_4",
+        "GEMINI_API_KEY_5"
+    };
+    const int key_slots = (int)(sizeof(key_names) / sizeof(key_names[0]));
+    int configured_keys = 0;
+    for (int i = 0; i < key_slots; i++) {
+        const char *key = getenv(key_names[i]);
+        if (key && key[0]) configured_keys++;
+    }
+    if (!configured_keys) {
+        fprintf(stderr, "[AI] No Gemini API key is configured.\n");
         return NULL;
     }
 
     char prompt[MAX_PROMPT_SIZE];
-
-    if (!build_prompt(
-        task,
-        prompt,
-        sizeof(prompt)
-    )) {
+    if (!build_prompt(task, prompt, sizeof(prompt))) {
+        fprintf(stderr, "[AI] Prompt creation failed.\n");
         return NULL;
     }
 
     char *body = create_request_body(prompt);
-
-    if (!body) return NULL;
-
-    CURL *curl = curl_easy_init();
-
-    if (!curl) {
-        free(body);
+    if (!body) {
+        fprintf(stderr, "[AI] Request creation failed.\n");
         return NULL;
     }
 
-    Buffer response = {NULL, 0};
+    const char *url =
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent";
 
-    struct curl_slist *headers = NULL;
+    int attempt = 0;
+    for (int i = 0; i < key_slots; i++) {
+        const char *api_key = getenv(key_names[i]);
+        if (!api_key || !api_key[0]) continue;
 
-    struct curl_slist *new_header =
-        curl_slist_append(headers, "Content-Type: application/json");
+        attempt++;
+        fprintf(stderr, "[AI] Trying configured Gemini key %d/%d.\n",
+                attempt, configured_keys);
 
-    if (!new_header) goto cleanup;
+        CURL *curl = curl_easy_init();
+        if (!curl) {
+            fprintf(stderr, "[AI] cURL initialization failed for key slot %d.\n", i + 1);
+            continue;
+        }
 
-    headers = new_header;
+        Buffer response = {NULL, 0};
+        struct curl_slist *headers = NULL;
+        char key_header[2048];
 
-    char key_header[512];
+        int n = snprintf(key_header, sizeof(key_header),
+                         "x-goog-api-key: %s", api_key);
+        if (n < 0 || (size_t)n >= sizeof(key_header)) {
+            fprintf(stderr, "[AI] API key in slot %d is too long.\n", i + 1);
+            curl_easy_cleanup(curl);
+            continue;
+        }
 
-    int n = snprintf(
-        key_header,
-        sizeof(key_header),
-        "x-goog-api-key: %s",
-        api_key
-    );
+        struct curl_slist *next = curl_slist_append(
+            headers, "Content-Type: application/json");
+        if (!next) {
+            curl_easy_cleanup(curl);
+            continue;
+        }
+        headers = next;
 
-    if (n < 0 || (size_t)n >= sizeof(key_header)) {
-        goto cleanup;
+        next = curl_slist_append(headers, key_header);
+        if (!next) {
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            continue;
+        }
+        headers = next;
+
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(body));
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 35L);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+
+        CURLcode result = curl_easy_perform(curl);
+        long status = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+
+        int accepted = 0;
+        if (result == CURLE_OK && status == 200 && response.data) {
+            task->success = 0;
+            task->generated_count = 0;
+            memset(task->generated, 0, sizeof(task->generated));
+            accepted = parse_generated_questions(response.data, task);
+        }
+
+        if (result == CURLE_OK) {
+            fprintf(stderr, "[AI] Gemini HTTP status for key slot %d: %ld.\n",
+                    i + 1, status);
+        } else {
+            fprintf(stderr, "[AI] Gemini request failed for key slot %d: %s.\n",
+                    i + 1, curl_easy_strerror(result));
+        }
+
+        if (accepted == task->count &&
+            task->generated_count == task->count) {
+            task->success = 1;
+            fprintf(stderr, "[AI] Gemini key slot %d succeeded; received %d questions.\n",
+                    i + 1, task->generated_count);
+            free(response.data);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            free(body);
+            return NULL;
+        }
+
+        fprintf(stderr, "[AI] Key slot %d did not return the full valid question set; trying the next key if available.\n",
+                i + 1);
+
+        task->success = 0;
+        task->generated_count = 0;
+        memset(task->generated, 0, sizeof(task->generated));
+
+        free(response.data);
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
     }
 
-    new_header = curl_slist_append(headers, key_header);
-
-    if (!new_header) goto cleanup;
-
-    headers = new_header;
-
-    curl_easy_setopt(
-        curl,
-        CURLOPT_URL,
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent"
-    );
-
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(body));
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 8L);
-    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-
-    CURLcode result = curl_easy_perform(curl);
-
-    if (result != CURLE_OK) goto cleanup;
-
-    long status = 0;
-
-    curl_easy_getinfo(
-        curl,
-        CURLINFO_RESPONSE_CODE,
-        &status
-    );
-
-    if (status != 200 || !response.data) {
-        goto cleanup;
-    }
-
-    parse_generated_questions(response.data, task);
-
-cleanup:
+    fprintf(stderr, "[AI] All configured Gemini API keys failed.\n");
     free(body);
-    free(response.data);
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-
     return NULL;
 }
