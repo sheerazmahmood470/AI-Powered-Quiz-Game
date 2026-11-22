@@ -3967,3 +3967,16 @@ tbody tr:last-child td {
     min-height: 330px !important;
   }
 }
+
+
+/* Trading-terminal inspired performance chart with a responsive touch target. */
+.chart-panel { overflow: hidden; }
+.chart-panel canvas, #performance-trend-chart {
+  display: block; width: 100% !important; height: 360px !important; max-height: 360px;
+}
+@media (max-width: 700px) {
+  .chart-panel { padding: 18px 14px !important; }
+  .chart-panel canvas, #performance-trend-chart {
+    height: 285px !important; max-height: 285px;
+  }
+}
