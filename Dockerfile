@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \
     gettext-base \
     ca-certificates \
+    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
