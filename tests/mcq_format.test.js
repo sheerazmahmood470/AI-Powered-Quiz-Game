@@ -9,7 +9,7 @@ assert(start >= 0 && end > start, "MCQ formatter functions must exist");
 
 const context = { module: { exports: {} }, String, RegExp };
 vm.runInNewContext(
-  source.slice(start, end) + "\\nmodule.exports = { normalizeDisplayText, normalizeOptions };",
+  source.slice(start, end) + "\nmodule.exports = { normalizeDisplayText, normalizeOptions };",
   context
 );
 const { normalizeDisplayText, normalizeOptions } = context.module.exports;
