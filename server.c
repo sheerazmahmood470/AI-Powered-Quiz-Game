@@ -11,6 +11,7 @@
 #include <curl/curl.h>
 
 #include "quiz_engine.h"
+#include "storage.h"
 
 #define PORT 8080
 static const char *history_file_path(void) {
@@ -187,6 +188,7 @@ static int migrate_bundled_history(void) {
 }
 
 static char *read_history_file(void) {
+    if (storage_is_configured()) return storage_read_json("history");
     FILE *file = fopen(history_file_path(), "rb");
 
     /* Migrate the bundled seed exactly once into the configured persistent disk. */
@@ -765,6 +767,13 @@ static const char *reviews_file_path(void) {
     return "reviews.json";
 }
 static cJSON *read_reviews(void) {
+    if (storage_is_configured()) {
+        char *data = storage_read_json("reviews");
+        if (!data) return NULL;
+        cJSON *root = cJSON_Parse(data); free(data);
+        if (!cJSON_IsArray(root)) { cJSON_Delete(root); return NULL; }
+        return root;
+    }
     FILE *f=fopen(reviews_file_path(),"rb"); if(!f) return cJSON_CreateArray();
     if(fseek(f,0,SEEK_END)!=0){fclose(f);return NULL;} long n=ftell(f);
     if(n<0||n>5000000||fseek(f,0,SEEK_SET)!=0){fclose(f);return NULL;}
@@ -774,7 +783,9 @@ static cJSON *read_reviews(void) {
     if(!cJSON_IsArray(root)){cJSON_Delete(root);return NULL;} return root;
 }
 static int save_reviews(cJSON *root) {
-    char *data=cJSON_Print(root); if(!data)return 0; char temp[600];
+    char *data=cJSON_PrintUnformatted(root); if(!data)return 0;
+    if (storage_is_configured()) { int ok=storage_write_json("reviews",data); free(data); return ok; }
+    char temp[600];
     int n=snprintf(temp,sizeof(temp),"%s.tmp",reviews_file_path());
     if(n<0||(size_t)n>=sizeof(temp)){free(data);return 0;}
     FILE *f=fopen(temp,"wb"); if(!f){free(data);return 0;}
@@ -811,40 +822,24 @@ static enum MHD_Result reviews_post(struct MHD_Connection *c,const char *body){
 
 /* ================= HEALTH CHECK ================= */
 
-static enum MHD_Result handle_health_check(
-    struct MHD_Connection *connection
-) {
+static enum MHD_Result handle_health_check(struct MHD_Connection *connection) {
     cJSON *json = cJSON_CreateObject();
     if (!json) return MHD_NO;
-
-    const char *configured_history = getenv("QUIZ_HISTORY_FILE");
-    int storage_configured = configured_history && configured_history[0];
-
-    /* Reading first also performs the one-time seed migration when needed. */
-    char *history_data = read_history_file();
-    FILE *history_file = fopen(history_file_path(), "rb");
-    int storage_ready = history_file != NULL;
-    if (history_file) fclose(history_file);
-
-    cJSON *history_json = history_data ? cJSON_Parse(history_data) : NULL;
-    int history_readable = cJSON_IsArray(history_json);
-    int history_records = history_readable ? cJSON_GetArraySize(history_json) : 0;
-    free(history_data);
-    cJSON_Delete(history_json);
-
-    cJSON_AddStringToObject(json, "status", "online");
-    cJSON_AddStringToObject(json, "message", "C backend connected");
-    cJSON_AddBoolToObject(json, "history_storage_configured", storage_configured);
-    cJSON_AddBoolToObject(json, "history_storage_ready", storage_ready);
-    cJSON_AddBoolToObject(json, "history_readable", history_readable);
-    cJSON_AddNumberToObject(json, "history_records", history_records);
-    cJSON_AddStringToObject(json, "history_storage",
-        storage_ready && storage_configured ? "persistent-path-ready" :
-        (storage_configured ? "persistent-path-not-ready" : "ephemeral-default"));
-
-    return send_json(connection, MHD_HTTP_OK, json);
+    int db_configured = storage_is_configured();
+    char *data = db_configured ? storage_read_json("history") : read_history_file();
+    cJSON *history = data ? cJSON_Parse(data) : NULL;
+    int readable = cJSON_IsArray(history);
+    int count = readable ? cJSON_GetArraySize(history) : 0;
+    free(data); cJSON_Delete(history);
+    cJSON_AddStringToObject(json,"status",db_configured&&!readable?"degraded":"online");
+    cJSON_AddStringToObject(json,"message",db_configured?(readable?"C backend connected to Neon PostgreSQL":"Database unavailable; persistent storage is not ready"):"C backend connected (local development storage)");
+    cJSON_AddBoolToObject(json,"database_configured",db_configured);
+    cJSON_AddBoolToObject(json,"database_ready",db_configured&&readable);
+    cJSON_AddBoolToObject(json,"history_readable",readable);
+    cJSON_AddNumberToObject(json,"history_records",count);
+    cJSON_AddStringToObject(json,"history_storage",db_configured?(readable?"neon-postgresql":"database-unavailable"):"local-development");
+    return send_json(connection,db_configured&&!readable?MHD_HTTP_SERVICE_UNAVAILABLE:MHD_HTTP_OK,json);
 }
-
 /* ================= REQUEST COMPLETED ================= */
 
 static void request_completed(
@@ -1014,6 +1009,10 @@ static enum MHD_Result answer_to_connection(
 /* ================= MAIN ================= */
 
 int main(void) {
+    if (storage_is_configured() && !storage_init()) {
+        fprintf(stderr, "[STORAGE] Startup aborted: Neon PostgreSQL is unavailable; temporary storage fallback is disabled.\n");
+        return 1;
+    }
     if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
         printf("Curl initialization failed!\n");
         return 1;

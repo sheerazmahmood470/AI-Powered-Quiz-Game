@@ -1,6 +1,6 @@
 
 // ======================================================
-// QUIZMIND AI — FRONTEND JAVASCRIPT
+// AI POWERED QUIZ GAME — FRONTEND JAVASCRIPT
 // C BACKEND API STRUCTURE PRESERVED
 // ======================================================
 
@@ -162,15 +162,16 @@ async function checkBackendConnection() {
 
         if (statusText) {
             const storage = data.history_storage || "unknown";
-            statusText.textContent = storage === "persistent-path-ready"
-                ? "Backend Connected · History storage ready"
-                : storage === "persistent-path-not-ready"
-                    ? "Backend Connected · History disk not mounted"
-                    : "Backend Connected · Temporary history storage";
+            statusText.textContent = storage === "neon-postgresql"
+                ? "Backend Connected · Cloud database ready"
+                : storage === "database-unavailable"
+                    ? "Database unavailable · History is protected"
+                    : storage === "local-development"
+                        ? "Database not configured"
+                        : "Checking secure storage...";
         }
-
-        if (data.history_storage && data.history_storage !== "persistent-path-ready") {
-            console.warn("Quiz history is not using a ready persistent disk:", data);
+        if (data.database_configured && !data.database_ready) {
+            console.error("Neon PostgreSQL is configured but unavailable:", data);
         }
 
         return true;
@@ -1666,7 +1667,7 @@ function setupQuizButtons() {
 // -------------------- INITIALIZATION --------------------
 
 document.addEventListener("DOMContentLoaded", () => {
-    console.log("QuizMind AI initialized.");
+    console.log("AI POWERED QUIZ GAME initialized.");
 
     const footerYear = $("#footer-year");
 
