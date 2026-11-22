@@ -979,7 +979,6 @@ static enum MHD_Result answer_to_connection(
         "Method not allowed"
     );
 }
-
 /* ================= MAIN ================= */
 
 int main(void) {
