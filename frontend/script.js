@@ -161,7 +161,16 @@ async function checkBackendConnection() {
         }
 
         if (statusText) {
-            statusText.textContent = "Backend Connected";
+            const storage = data.history_storage || "unknown";
+            statusText.textContent = storage === "persistent-path-ready"
+                ? "Backend Connected · History storage ready"
+                : storage === "persistent-path-not-ready"
+                    ? "Backend Connected · History disk not mounted"
+                    : "Backend Connected · Temporary history storage";
+        }
+
+        if (data.history_storage && data.history_storage !== "persistent-path-ready") {
+            console.warn("Quiz history is not using a ready persistent disk:", data);
         }
 
         return true;
@@ -400,9 +409,16 @@ async function loadHistoryData() {
         });
         const freshRecords = normalizeHistory(data);
 
-        // Ignore an older response that arrived after a newer refresh.
+        // A stale backend response must not roll confirmed append-only history backwards.
         if (requestVersion === historyRequestVersion) {
-            historyData = freshRecords;
+            if (freshRecords.length < historyData.length) {
+                console.warn("History API returned fewer records than the last confirmed response; retaining confirmed history.", {
+                    previous: historyData.length,
+                    received: freshRecords.length
+                });
+            } else {
+                historyData = freshRecords;
+            }
         }
 
         return historyData;
@@ -1307,94 +1323,91 @@ setProgressCircle("#best-circle", bestScore);
 }
 
 function renderAnalyticsChart(records) {
-    const canvas =
-        $("#performance-trend-chart") ||
-        $("#analytics-chart");
-
+    const canvas = $("#performance-trend-chart") || $("#analytics-chart");
     if (!canvas || typeof Chart === "undefined") return;
 
-    const recentRecords = records.slice(-10);
-    const firstQuizNumber = Math.max(1, records.length - recentRecords.length + 1);
-    const labels = recentRecords.map((record, index) =>
-        `Quiz ${firstQuizNumber + index}`
-    );
-    const scores = recentRecords.map((record) =>
-        Math.round(getRecordStats(record).percentage)
-    );
-
-    // A real rolling average smooths the visual trend without changing the source scores.
-    const rollingAverage = scores.map((score, index) => {
-        const windowScores = scores.slice(Math.max(0, index - 2), index + 1);
-        return Math.round(
-            windowScores.reduce((sum, value) => sum + value, 0) /
-            windowScores.length
-        );
-    });
+    // Real completed-session timestamps only; no numbered or synthetic points.
+    const chartRecords = [...records]
+        .filter((record) => Number(record.timestamp) > 0)
+        .sort((a, b) => Number(a.timestamp) - Number(b.timestamp))
+        .slice(-100);
 
     if (analyticsChart) {
         analyticsChart.destroy();
+        analyticsChart = null;
     }
+    if (!chartRecords.length) return;
+
+    const labels = chartRecords.map((record) => {
+        const date = new Date(Number(record.timestamp) * 1000);
+        return Number.isNaN(date.getTime()) ? "Recorded session" :
+            date.toLocaleString("en-PK", {
+                day: "2-digit", month: "short", hour: "2-digit",
+                minute: "2-digit", hour12: true
+            });
+    });
+    const scores = chartRecords.map((record) =>
+        Number(getRecordStats(record).percentage.toFixed(1))
+    );
+
+    const context = canvas.getContext("2d");
+    const gradient = context.createLinearGradient(0, 0, 0, Math.max(canvas.clientHeight, 280));
+    gradient.addColorStop(0, "rgba(35, 166, 112, 0.30)");
+    gradient.addColorStop(0.72, "rgba(35, 166, 112, 0.06)");
+    gradient.addColorStop(1, "rgba(35, 166, 112, 0.00)");
 
     analyticsChart = new Chart(canvas, {
         type: "line",
         data: {
             labels,
-            datasets: [
-                {
-                    label: "Quiz score",
-                    data: scores,
-                    borderColor: "#345b48",
-                    backgroundColor: "rgba(52, 91, 72, 0.10)",
-                    borderWidth: 3,
-                    fill: true,
-                    tension: 0.35,
-                    pointRadius: 5,
-                    pointHoverRadius: 7
-                },
-                {
-                    label: "3-quiz average",
-                    data: rollingAverage,
-                    borderColor: "#d39a45",
-                    backgroundColor: "transparent",
-                    borderWidth: 2,
-                    borderDash: [6, 5],
-                    fill: false,
-                    tension: 0.35,
-                    pointRadius: 2,
-                    pointHoverRadius: 5
-                }
-            ]
+            datasets: [{
+                label: "Quiz performance",
+                data: scores,
+                borderColor: "#20a875",
+                backgroundColor: gradient,
+                borderWidth: 2.5,
+                fill: true,
+                tension: 0.16,
+                cubicInterpolationMode: "monotone",
+                pointRadius: 0,
+                pointHoverRadius: 5,
+                pointHitRadius: 14,
+                pointHoverBackgroundColor: "#20a875",
+                pointHoverBorderColor: "#ffffff",
+                pointHoverBorderWidth: 2
+            }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: {
-                mode: "index",
-                intersect: false
-            },
+            animation: { duration: 650, easing: "easeOutQuart" },
+            interaction: { mode: "index", intersect: false },
             plugins: {
-                legend: {
-                    display: true,
-                    position: "bottom"
-                },
+                legend: { display: false },
                 tooltip: {
+                    displayColors: false,
+                    backgroundColor: "rgba(17, 24, 20, 0.94)",
+                    titleColor: "#d7e8df",
+                    bodyColor: "#ffffff",
+                    padding: 12,
+                    cornerRadius: 10,
                     callbacks: {
-                        title: (items) => items.length ? items[0].label : ""
+                        title: (items) => items.length ? items[0].label : "",
+                        label: (item) => `Performance: ${Number(item.raw).toFixed(1)}%`
                     }
                 }
             },
             scales: {
-                y: {
-                    beginAtZero: true,
-                    max: 100,
-                    ticks: {
-                        callback: (value) => `${value}%`
-                    }
-                },
                 x: {
-                    grid: {
-                        display: false
-                    }
+                    grid: { display: false, drawBorder: false },
+                    border: { display: false },
+                    ticks: { maxTicksLimit: 6, maxRotation: 0, color: "#89958e", font: { size: 10 } }
+                },
+                y: {
+                    min: 0, max: 100,
+                    border: { display: false, dash: [4, 5] },
+                    grid: { color: "rgba(120, 137, 127, 0.13)", drawTicks: false },
+                    ticks: { stepSize: 20, padding: 10, color: "#89958e", callback: (value) => `${value}%` }
                 }
             }
         }
