@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <unistd.h>
 #include <time.h>
 #include <pthread.h>
 
@@ -30,6 +31,7 @@ typedef struct {
     WebQuizSession quiz;
     char completion_answers[WEB_MAX_QUESTIONS + 1];
     char completion_response[65536];
+    char legacy_answers[WEB_MAX_QUESTIONS + 1];
 } ServerSession;
 
 static ServerSession sessions[MAX_SESSIONS];
@@ -355,9 +357,10 @@ static cJSON *full_question_to_json(const Question *q) {
     cJSON_AddStringToObject(o,"explanation",q->explanation);
     return o;
 }
-static int persist_active_quiz_session(const WebQuizSession *session) {
+static int persist_active_quiz_session(const ServerSession *slot) {
     if(!storage_is_configured())return 1;
-    if(!session||!session->session_id[0])return 0;
+    if(!slot||!slot->used||!slot->quiz.session_id[0])return 0;
+    const WebQuizSession *session = &slot->quiz;
     cJSON *root=cJSON_CreateObject(); if(!root)return 0;
     cJSON_AddBoolToObject(root,"completed",0);
     cJSON_AddStringToObject(root,"session_id",session->session_id);
@@ -365,6 +368,10 @@ static int persist_active_quiz_session(const WebQuizSession *session) {
     cJSON_AddStringToObject(root,"topic",session->topic);
     cJSON_AddNumberToObject(root,"total_questions",session->total_questions);
     cJSON_AddNumberToObject(root,"start_time",session->start_time);
+    cJSON_AddNumberToObject(root,"current_question",session->current_question);
+    cJSON_AddNumberToObject(root,"correct_answers",session->correct_answers);
+    cJSON_AddNumberToObject(root,"incorrect_answers",session->incorrect_answers);
+    cJSON_AddStringToObject(root,"submitted_answers",slot->legacy_answers);
     cJSON *items=cJSON_AddArrayToObject(root,"questions");
     if(!items){cJSON_Delete(root);return 0;}
     for(int i=0;i<session->total_questions;i++){cJSON *v=full_question_to_json(&session->questions[i]);if(!v){cJSON_Delete(root);return 0;}cJSON_AddItemToArray(items,v);}
@@ -382,7 +389,7 @@ static int persist_completed_quiz_session(const char *id,const char *answers,con
     int ok=storage_write_json(key,json);free(json);return ok;
 }
 /* 1=active restored, 2=completed response restored, 0=unavailable. */
-static int restore_quiz_session(const char *id,WebQuizSession *session,char *done_answers,size_t done_size,char *done_response,size_t response_size) {
+static int restore_quiz_session(const char *id,WebQuizSession *session,char *done_answers,size_t done_size,char *done_response,size_t response_size,char *partial_answers,size_t partial_size) {
     if(!storage_is_configured())return 0;
     char key[128];quiz_session_storage_key(id,key,sizeof(key));char *data=storage_read_json(key);if(!data)return 0;
     cJSON *root=cJSON_Parse(data);free(data);if(!cJSON_IsObject(root)){cJSON_Delete(root);return 0;}
@@ -395,7 +402,13 @@ static int restore_quiz_session(const char *id,WebQuizSession *session,char *don
     cJSON *sid=cJSON_GetObjectItemCaseSensitive(root,"session_id"),*player=cJSON_GetObjectItemCaseSensitive(root,"player"),*topic=cJSON_GetObjectItemCaseSensitive(root,"topic"),*total=cJSON_GetObjectItemCaseSensitive(root,"total_questions"),*start=cJSON_GetObjectItemCaseSensitive(root,"start_time"),*items=cJSON_GetObjectItemCaseSensitive(root,"questions");
     int valid=cJSON_IsString(sid)&&strcmp(sid->valuestring,id)==0&&cJSON_IsString(player)&&cJSON_IsString(topic)&&cJSON_IsNumber(total)&&(total->valueint==10||total->valueint==15)&&cJSON_IsNumber(start)&&cJSON_IsArray(items)&&cJSON_GetArraySize(items)==total->valueint;
     if(!valid){cJSON_Delete(root);return 0;}
-    memset(session,0,sizeof(*session));snprintf(session->session_id,sizeof(session->session_id),"%s",id);snprintf(session->player,sizeof(session->player),"%s",player->valuestring);snprintf(session->topic,sizeof(session->topic),"%s",topic->valuestring);session->total_questions=total->valueint;session->start_time=start->valuedouble;
+    cJSON *current=cJSON_GetObjectItemCaseSensitive(root,"current_question"),*correct=cJSON_GetObjectItemCaseSensitive(root,"correct_answers"),*incorrect=cJSON_GetObjectItemCaseSensitive(root,"incorrect_answers"),*submitted=cJSON_GetObjectItemCaseSensitive(root,"submitted_answers");
+    int current_index=cJSON_IsNumber(current)?current->valueint:0;
+    if(current_index<0||current_index>total->valueint){cJSON_Delete(root);return 0;}
+    if(cJSON_IsString(submitted)&&strlen(submitted->valuestring)!=(size_t)current_index){cJSON_Delete(root);return 0;}
+    if(current_index>0&&!cJSON_IsString(submitted)){cJSON_Delete(root);return 0;}
+    memset(session,0,sizeof(*session));snprintf(session->session_id,sizeof(session->session_id),"%s",id);snprintf(session->player,sizeof(session->player),"%s",player->valuestring);snprintf(session->topic,sizeof(session->topic),"%s",topic->valuestring);session->total_questions=total->valueint;session->start_time=start->valuedouble;session->current_question=current_index;session->correct_answers=cJSON_IsNumber(correct)?correct->valueint:0;session->incorrect_answers=cJSON_IsNumber(incorrect)?incorrect->valueint:0;
+    if(partial_answers&&partial_size&&cJSON_IsString(submitted))snprintf(partial_answers,partial_size,"%s",submitted->valuestring);
     for(int i=0;i<session->total_questions&&valid;i++){
         cJSON *v=cJSON_GetArrayItem(items,i),*qt=cJSON_GetObjectItemCaseSensitive(v,"question"),*opts=cJSON_GetObjectItemCaseSensitive(v,"options"),*ans=cJSON_GetObjectItemCaseSensitive(v,"correct_option"),*exp=cJSON_GetObjectItemCaseSensitive(v,"explanation");
         if(!cJSON_IsString(qt)||strlen(qt->valuestring)>=QUESTION_LEN||!cJSON_IsArray(opts)||cJSON_GetArraySize(opts)!=4||!cJSON_IsString(ans)||strlen(ans->valuestring)!=1||!cJSON_IsString(exp)||strlen(exp->valuestring)>=EXPLANATION_LEN){valid=0;break;}
@@ -531,16 +544,19 @@ static enum MHD_Result handle_start_quiz(
     slot->quiz = generated_quiz;
     slot->used = 1;
     session_counter++;
+    struct timespec session_clock;
+    clock_gettime(CLOCK_REALTIME, &session_clock);
     snprintf(
         slot->quiz.session_id,
         sizeof(slot->quiz.session_id),
-        "quiz-%ld-%lu-%u",
-        (long)time(NULL),
+        "quiz-%ld-%09ld-%lu-%u",
+        (long)session_clock.tv_sec,
+        session_clock.tv_nsec,
         session_counter,
-        (unsigned int)rand()
+        (unsigned int)getpid()
     );
 
-    if (!persist_active_quiz_session(&slot->quiz)) {
+    if (!persist_active_quiz_session(slot)) {
         slot->used = 0;
         pthread_mutex_unlock(&sessions_mutex);
         return send_error(connection, MHD_HTTP_SERVICE_UNAVAILABLE,
@@ -700,146 +716,73 @@ static enum MHD_Result handle_submit_answer(
     const char *body
 ) {
     cJSON *input = cJSON_Parse(body);
-
-    if (!input || !cJSON_IsObject(input)) {
-        cJSON_Delete(input);
-
-        return send_error(
-            connection,
-            MHD_HTTP_BAD_REQUEST,
-            "Invalid JSON request"
-        );
+    if (!cJSON_IsObject(input)) { cJSON_Delete(input); return send_error(connection,MHD_HTTP_BAD_REQUEST,"Invalid JSON request"); }
+    cJSON *sid = cJSON_GetObjectItemCaseSensitive(input,"session_id");
+    cJSON *answer_value = cJSON_GetObjectItemCaseSensitive(input,"answer");
+    if (!cJSON_IsString(sid) || !cJSON_IsString(answer_value) || strlen(answer_value->valuestring)!=1) {
+        cJSON_Delete(input); return send_error(connection,MHD_HTTP_BAD_REQUEST,"Session ID and one answer character are required");
     }
-
-    cJSON *session_value =
-        cJSON_GetObjectItemCaseSensitive(input, "session_id");
-
-    cJSON *answer_value =
-        cJSON_GetObjectItemCaseSensitive(input, "answer");
-
-    if (!cJSON_IsString(session_value) ||
-        !cJSON_IsString(answer_value) ||
-        strlen(answer_value->valuestring) != 1) {
-
-        cJSON_Delete(input);
-
-        return send_error(
-            connection,
-            MHD_HTTP_BAD_REQUEST,
-            "Session ID and one answer character are required"
-        );
-    }
-
-    char session_id[64];
-
-    snprintf(
-        session_id,
-        sizeof(session_id),
-        "%s",
-        session_value->valuestring
-    );
-
-    char answer = answer_value->valuestring[0];
-
+    char session_id[64]; snprintf(session_id,sizeof(session_id),"%s",sid->valuestring);
+    char answer=(char)toupper((unsigned char)answer_value->valuestring[0]);
     cJSON_Delete(input);
-
-    cJSON *output = NULL;
+    if(answer<'A'||answer>'D')return send_error(connection,MHD_HTTP_BAD_REQUEST,"Invalid answer");
 
     pthread_mutex_lock(&sessions_mutex);
-
-    ServerSession *slot = find_session(session_id);
-
-    if (!slot || slot->quiz.completed) {
+    ServerSession *slot=find_session(session_id);
+    if(!slot){
+        WebQuizSession restored;char done_answers[WEB_MAX_QUESTIONS+1]={0},done_response[65536]={0},partial[WEB_MAX_QUESTIONS+1]={0};
+        int state=restore_quiz_session(session_id,&restored,done_answers,sizeof(done_answers),done_response,sizeof(done_response),partial,sizeof(partial));
+        if(state==2){pthread_mutex_unlock(&sessions_mutex);cJSON *cached=cJSON_Parse(done_response);if(cached)return send_json(connection,MHD_HTTP_OK,cached);return send_error(connection,MHD_HTTP_CONFLICT,"This quiz has already been completed.");}
+        if(state==1){
+            for(int i=0;i<MAX_SESSIONS;i++)if(!sessions[i].used||sessions[i].quiz.completed){slot=&sessions[i];break;}
+            if(slot){memset(slot,0,sizeof(*slot));slot->used=1;slot->quiz=restored;snprintf(slot->legacy_answers,sizeof(slot->legacy_answers),"%s",partial);}
+        }
+    }
+    if(!slot){pthread_mutex_unlock(&sessions_mutex);return send_error(connection,MHD_HTTP_NOT_FOUND,"Quiz session expired. Please start a new quiz.");}
+    if(slot->quiz.completed){
+        char cached_response[65536];snprintf(cached_response,sizeof(cached_response),"%s",slot->completion_response);
         pthread_mutex_unlock(&sessions_mutex);
-
-        return send_error(
-            connection,
-            MHD_HTTP_NOT_FOUND,
-            "Quiz session not found or already completed"
-        );
+        cJSON *cached=cached_response[0]?cJSON_Parse(cached_response):NULL;
+        if(cached)return send_json(connection,MHD_HTTP_OK,cached);
+        return send_error(connection,MHD_HTTP_CONFLICT,"This quiz has already been completed.");
     }
 
-    WebQuizSession *session = &slot->quiz;
+    WebQuizSession before=slot->quiz;
+    char previous_answers[WEB_MAX_QUESTIONS+1];snprintf(previous_answers,sizeof(previous_answers),"%s",slot->legacy_answers);
+    int answer_index=slot->quiz.current_question;
+    Question current_question=slot->quiz.questions[answer_index];
+    int result=quiz_engine_submit_answer(&slot->quiz,answer);
+    if(result==-1){pthread_mutex_unlock(&sessions_mutex);return send_error(connection,MHD_HTTP_BAD_REQUEST,"Invalid answer");}
+    if(answer_index<WEB_MAX_QUESTIONS){slot->legacy_answers[answer_index]=answer;slot->legacy_answers[answer_index+1]='\0';}
 
-    Question current_question =
-        session->questions[session->current_question];
+    cJSON *output=cJSON_CreateObject();
+    if(!output){slot->quiz=before;snprintf(slot->legacy_answers,sizeof(slot->legacy_answers),"%s",previous_answers);pthread_mutex_unlock(&sessions_mutex);return MHD_NO;}
+    cJSON_AddBoolToObject(output,"success",1);
+    cJSON_AddBoolToObject(output,"correct",result==1);
+    char correct_answer[2]={current_question.correct_option,'\0'};
+    cJSON_AddStringToObject(output,"correct_answer",correct_answer);
+    cJSON_AddStringToObject(output,"explanation",current_question.explanation);
 
-    int result = quiz_engine_submit_answer(
-        session,
-        answer
-    );
-
-    if (result == -1) {
-        pthread_mutex_unlock(&sessions_mutex);
-
-        return send_error(
-            connection,
-            MHD_HTTP_BAD_REQUEST,
-            "Invalid answer"
-        );
-    }
-
-    output = cJSON_CreateObject();
-
-    if (!output) {
-        pthread_mutex_unlock(&sessions_mutex);
-        return MHD_NO;
-    }
-
-    cJSON_AddBoolToObject(output, "success", 1);
-
-    cJSON_AddBoolToObject(
-        output,
-        "correct",
-        result == 1
-    );
-
-    char correct_answer[2] = {
-        current_question.correct_option,
-        '\0'
-    };
-
-    cJSON_AddStringToObject(
-        output,
-        "correct_answer",
-        correct_answer
-    );
-
-    cJSON_AddStringToObject(
-        output,
-        "explanation",
-        current_question.explanation
-    );
-
-    if (session->completed) {
-        add_final_result(
-            output,
-            session,
-            result != -2
-        );
+    if(slot->quiz.completed){
+        add_final_result(output,&slot->quiz,result!=-2);
     } else {
-        cJSON_AddBoolToObject(output, "completed", 0);
-
-        cJSON_AddItemToObject(
-            output,
-            "next_question",
-            create_question_json(
-                &session->questions[session->current_question],
-                session->current_question,
-                session->total_questions
-            )
-        );
+        cJSON_AddBoolToObject(output,"completed",0);
+        cJSON_AddItemToObject(output,"next_question",create_question_json(&slot->quiz.questions[slot->quiz.current_question],slot->quiz.current_question,slot->quiz.total_questions));
+        if(!persist_active_quiz_session(slot)){
+            slot->quiz=before;snprintf(slot->legacy_answers,sizeof(slot->legacy_answers),"%s",previous_answers);
+            cJSON_Delete(output);pthread_mutex_unlock(&sessions_mutex);
+            return send_error(connection,MHD_HTTP_SERVICE_UNAVAILABLE,"Quiz progress could not be saved. Please retry this answer.");
+        }
     }
 
+    if(slot->quiz.completed){
+        snprintf(slot->completion_answers,sizeof(slot->completion_answers),"%s",slot->legacy_answers);
+        char *serialized=cJSON_PrintUnformatted(output);
+        if(serialized){snprintf(slot->completion_response,sizeof(slot->completion_response),"%s",serialized);if(!persist_completed_quiz_session(session_id,slot->completion_answers,serialized))fprintf(stderr,"[SESSION] Could not persist legacy completion receipt for %s.\n",session_id);free(serialized);}
+    }
     pthread_mutex_unlock(&sessions_mutex);
-
-    return send_json(
-        connection,
-        MHD_HTTP_OK,
-        output
-    );
+    return send_json(connection,MHD_HTTP_OK,output);
 }
-
 
 
 /* One network submission at the end of the locally cached quiz. */
@@ -857,9 +800,9 @@ static enum MHD_Result handle_complete_quiz(struct MHD_Connection *connection,co
     ServerSession *slot=find_session(id);
     if(!slot){
         WebQuizSession restored;char old_answers[WEB_MAX_QUESTIONS+1]={0},old_response[65536]={0};
-        int state=restore_quiz_session(id,&restored,old_answers,sizeof(old_answers),old_response,sizeof(old_response));
+        char partial_answers[WEB_MAX_QUESTIONS+1]={0}; int state=restore_quiz_session(id,&restored,old_answers,sizeof(old_answers),old_response,sizeof(old_response),partial_answers,sizeof(partial_answers));
         if(state==2){pthread_mutex_unlock(&sessions_mutex);if(strcmp(old_answers,answers)==0){cJSON *cached=cJSON_Parse(old_response);if(cached)return send_json(connection,MHD_HTTP_OK,cached);}return send_error(connection,MHD_HTTP_CONFLICT,"This quiz was already completed with a different answer set.");}
-        if(state==1){for(int i=0;i<MAX_SESSIONS;i++)if(!sessions[i].used||sessions[i].quiz.completed){slot=&sessions[i];break;}if(slot){memset(slot,0,sizeof(*slot));slot->quiz=restored;slot->used=1;}}
+        if(state==1){for(int i=0;i<MAX_SESSIONS;i++)if(!sessions[i].used||sessions[i].quiz.completed){slot=&sessions[i];break;}if(slot){memset(slot,0,sizeof(*slot));slot->quiz=restored;slot->used=1;snprintf(slot->legacy_answers,sizeof(slot->legacy_answers),"%s",partial_answers);}}
     }
     if(!slot){pthread_mutex_unlock(&sessions_mutex);return send_error(connection,MHD_HTTP_NOT_FOUND,"Quiz session expired. Please start a new quiz.");}
     if(slot->quiz.completed){
@@ -868,8 +811,14 @@ static enum MHD_Result handle_complete_quiz(struct MHD_Connection *connection,co
         if(same){cJSON *cached=cJSON_Parse(saved);if(cached)return send_json(connection,MHD_HTTP_OK,cached);}
         return send_error(connection,MHD_HTTP_CONFLICT,"This quiz was already completed with a different answer set.");
     }
-    if(count!=slot->quiz.total_questions||slot->quiz.current_question!=0){pthread_mutex_unlock(&sessions_mutex);return send_error(connection,MHD_HTTP_CONFLICT,"Quiz answer list does not match the active quiz.");}
-    int scored=quiz_engine_submit_answers(&slot->quiz,answers,count);
+    if(count!=slot->quiz.total_questions){pthread_mutex_unlock(&sessions_mutex);return send_error(connection,MHD_HTTP_CONFLICT,"Quiz answer list does not match the active quiz.");}
+    int already_answered=slot->quiz.current_question;
+    if(already_answered>0 && strncmp(slot->legacy_answers,answers,(size_t)already_answered)!=0){pthread_mutex_unlock(&sessions_mutex);return send_error(connection,MHD_HTTP_CONFLICT,"Previously submitted answers do not match this quiz.");}
+    int scored=0;
+    if(already_answered==0) scored=quiz_engine_submit_answers(&slot->quiz,answers,count);
+    else {
+        for(int i=already_answered;i<count;i++){scored=quiz_engine_submit_answer(&slot->quiz,answers[i]);if(scored==-1)break;}
+    }
     if(scored==-1||!slot->quiz.completed){pthread_mutex_unlock(&sessions_mutex);return send_error(connection,MHD_HTTP_BAD_REQUEST,"Quiz answers could not be validated.");}
 
     cJSON *output=cJSON_CreateObject();if(!output){pthread_mutex_unlock(&sessions_mutex);return MHD_NO;}
@@ -884,6 +833,7 @@ static enum MHD_Result handle_complete_quiz(struct MHD_Connection *connection,co
         cJSON_AddItemToArray(review,item);
     }
     snprintf(slot->completion_answers,sizeof(slot->completion_answers),"%s",answers);
+    snprintf(slot->legacy_answers,sizeof(slot->legacy_answers),"%s",answers);
     char *response=cJSON_PrintUnformatted(output);
     if(response){snprintf(slot->completion_response,sizeof(slot->completion_response),"%s",response);if(!persist_completed_quiz_session(id,answers,response))fprintf(stderr,"[SESSION] Could not persist completion response for %s.\n",id);free(response);}
     pthread_mutex_unlock(&sessions_mutex);
