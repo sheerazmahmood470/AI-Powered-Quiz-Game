@@ -137,11 +137,65 @@ static enum MHD_Result send_error(
 
 /* ================= READ HISTORY ================= */
 
+static int migrate_bundled_history(void) {
+    const char *configured = getenv("QUIZ_HISTORY_FILE");
+    if (!configured || !configured[0] || strcmp(configured, "history.json") == 0) {
+        return 0;
+    }
+
+    FILE *existing = fopen(configured, "rb");
+    if (existing) {
+        fclose(existing);
+        return 1;
+    }
+
+    FILE *source = fopen("history.json", "rb");
+    if (!source) return 0;
+
+    char temp_path[1200];
+    int path_length = snprintf(temp_path, sizeof(temp_path), "%s.migrate.tmp", configured);
+    if (path_length < 0 || (size_t)path_length >= sizeof(temp_path)) {
+        fclose(source);
+        return 0;
+    }
+
+    FILE *target = fopen(temp_path, "wb");
+    if (!target) {
+        fclose(source);
+        return 0;
+    }
+
+    char buffer[8192];
+    size_t bytes;
+    int ok = 1;
+    while ((bytes = fread(buffer, 1, sizeof(buffer), source)) > 0) {
+        if (fwrite(buffer, 1, bytes, target) != bytes) {
+            ok = 0;
+            break;
+        }
+    }
+    if (ferror(source)) ok = 0;
+    if (fclose(source) != 0) ok = 0;
+    if (fflush(target) != 0) ok = 0;
+    if (fclose(target) != 0) ok = 0;
+
+    if (!ok || rename(temp_path, configured) != 0) {
+        remove(temp_path);
+        return 0;
+    }
+    return 1;
+}
+
 static char *read_history_file(void) {
     FILE *file = fopen(history_file_path(), "rb");
 
-    /* Keep compatibility with the bundled history file on first boot. */
-    if (!file && strcmp(history_file_path(), "history.json") != 0) {
+    /* Migrate the bundled seed exactly once into the configured persistent disk. */
+    if (!file && migrate_bundled_history()) {
+        file = fopen(history_file_path(), "rb");
+    }
+
+    /* Without an explicitly configured disk, use the bundled local history. */
+    if (!file && !getenv("QUIZ_HISTORY_FILE")) {
         file = fopen("history.json", "rb");
     }
 
