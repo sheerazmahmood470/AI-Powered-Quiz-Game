@@ -57,16 +57,34 @@ static int looks_like_c_code(const char *s) {
            strstr(s,"NULL")||strstr(s,"char ")||strstr(s,"\\\\n")||
            strstr(s,"\\\\t")||strstr(s,"\\\\0");
 }
+static int is_known_latex_command(const char *slash) {
+    static const char *commands[] = {
+        "frac", "sqrt", "sum", "int", "alpha", "beta", "gamma",
+        "delta", "theta", "lambda", "mu", "pi", "rho", "sigma",
+        "omega", "upsilon", "infty", "begin", "end", "text",
+        "mathrm", "operatorname", "times", "cdot", "neq", "leq",
+        "geq", "rightarrow", "left", "right"
+    };
+    for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
+        size_t n = strlen(commands[i]);
+        if (strncmp(slash + 1, commands[i], n) == 0) return 1;
+    }
+    return 0;
+}
+
 static int has_unrendered_math_command(const char *text) {
     int is_code = looks_like_c_code(text);
     for (const char *p = text; p[0] && p[1]; p++) {
         if (p[0] == '\\' && isalpha((unsigned char)p[1])) {
-            if (is_code && strchr("abfnrtv0xXuU", p[1])) continue;
+            if (is_known_latex_command(p)) return 1;
+            if (is_code && strchr("abfnrtv", p[1])) continue;
             return 1;
         }
     }
     return 0;
-}static void normalize_ai_text(char *text,size_t capacity) {
+}
+
+static void normalize_ai_text(char *text,size_t capacity) {
     if(!text||!capacity)return;
     replace_text_token(text,capacity,"\\times","×");replace_text_token(text,capacity,"\\cdot","·");replace_text_token(text,capacity,"\\neq","≠");replace_text_token(text,capacity,"\\leq","≤");replace_text_token(text,capacity,"\\geq","≥");replace_text_token(text,capacity,"\\rightarrow","→");replace_text_token(text,capacity,"\\to","→");replace_text_token(text,capacity,"\\pi","π");
     unwrap_latex_text(text,"\\text");unwrap_latex_text(text,"\\mathrm");unwrap_latex_text(text,"\\operatorname");
