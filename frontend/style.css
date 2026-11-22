@@ -4029,3 +4029,60 @@ tbody tr:last-child td {
   min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere;
   word-break: normal; line-height: 1.65;
 }
+
+/* Compact, balanced answer cards: keep long answers readable without excess
+   vertical padding. Transitions are limited to quiz controls for smooth feedback. */
+.quiz-options {
+  gap: 9px;
+}
+
+.quiz-options button,
+.quiz-options label {
+  min-height: 46px;
+  padding: 11px 15px;
+  gap: 10px;
+  line-height: 1.45;
+  transition:
+    background-color .18s ease,
+    border-color .18s ease,
+    box-shadow .18s ease,
+    transform .18s cubic-bezier(.2,.7,.25,1);
+}
+
+.quiz-options .option-text {
+  line-height: 1.45;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .quiz-options button:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 14px rgba(25, 35, 25, .06);
+  }
+}
+
+.quiz-options button:not(:disabled):active {
+  transform: scale(.995);
+}
+
+@media (max-width: 850px) {
+  .quiz-options button,
+  .quiz-options label {
+    min-height: 44px !important;
+    padding: 10px 13px !important;
+    gap: 9px !important;
+  }
+
+  .quiz-options .option-text {
+    line-height: 1.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quiz-options button,
+  .quiz-options label {
+    transition: none !important;
+  }
+  .quiz-options button:not(:disabled):active {
+    transform: none;
+  }
+}
