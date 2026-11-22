@@ -816,9 +816,7 @@ static enum MHD_Result handle_complete_quiz(struct MHD_Connection *connection,co
     if(already_answered>0 && strncmp(slot->legacy_answers,answers,(size_t)already_answered)!=0){pthread_mutex_unlock(&sessions_mutex);return send_error(connection,MHD_HTTP_CONFLICT,"Previously submitted answers do not match this quiz.");}
     int scored=0;
     if(already_answered==0) scored=quiz_engine_submit_answers(&slot->quiz,answers,count);
-    else {
-        for(int i=already_answered;i<count;i++){scored=quiz_engine_submit_answer(&slot->quiz,answers[i]);if(scored==-1)break;}
-    }
+    else { for(int i=already_answered;i<count;i++){scored=quiz_engine_submit_answer(&slot->quiz,answers[i]);if(scored==-1)break;} }
     if(scored==-1||!slot->quiz.completed){pthread_mutex_unlock(&sessions_mutex);return send_error(connection,MHD_HTTP_BAD_REQUEST,"Quiz answers could not be validated.");}
 
     cJSON *output=cJSON_CreateObject();if(!output){pthread_mutex_unlock(&sessions_mutex);return MHD_NO;}
