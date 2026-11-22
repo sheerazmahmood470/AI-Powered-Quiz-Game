@@ -383,7 +383,6 @@ static int load_history(
     }
     cJSON *root = cJSON_Parse(data);
     free(data);
-
     int count = 0;
 
     if (!cJSON_IsArray(root)) {
