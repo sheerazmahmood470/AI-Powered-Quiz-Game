@@ -936,6 +936,7 @@ function renderQuestion(question) {
 
     if (submitButton) {
         submitButton.disabled = true;
+        submitButton.textContent = "Submit answer ↗";
     }
 
     if (!optionsContainer) {
