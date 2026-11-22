@@ -279,81 +279,67 @@ function setupNavigation() {
     const sidebar = $(".sidebar");
     const menuToggle = $(".mobile-nav-toggle");
 
+    const closeMenu = () => {
+        if (!sidebar || !menuToggle) return;
+        sidebar.classList.remove("mobile-nav-open");
+        document.body.classList.remove("mobile-menu-visible");
+        menuToggle.setAttribute("aria-expanded", "false");
+        menuToggle.setAttribute("aria-label", "Open navigation menu");
+        const icon = menuToggle.querySelector(".mobile-nav-toggle-icon");
+        if (icon) icon.classList.remove("is-open");
+    };
+
+    const openMenu = () => {
+        if (!sidebar || !menuToggle) return;
+        sidebar.classList.add("mobile-nav-open");
+        document.body.classList.add("mobile-menu-visible");
+        menuToggle.setAttribute("aria-expanded", "true");
+        menuToggle.setAttribute("aria-label", "Close navigation menu");
+        const icon = menuToggle.querySelector(".mobile-nav-toggle-icon");
+        if (icon) icon.classList.add("is-open");
+    };
+
     if (menuToggle && sidebar) {
         menuToggle.addEventListener("click", () => {
-            const expanded = sidebar.classList.toggle("mobile-nav-open");
-            menuToggle.setAttribute("aria-expanded", String(expanded));
-            menuToggle.setAttribute(
-                "aria-label",
-                expanded ? "Close navigation menu" : "Open navigation menu"
-            );
-            const icon = menuToggle.querySelector(".mobile-nav-toggle-icon");
-            if (icon) icon.textContent = expanded ? "✕" : "☰";
+            const expanded = menuToggle.getAttribute("aria-expanded") === "true";
+            if (expanded) closeMenu();
+            else openMenu();
         });
-    }
-
-    // Keep the mobile workspace menu closed until the user opens it.
-    if (menuToggle && sidebar) {
-        const closeMenu = () => {
-            sidebar.classList.remove("mobile-nav-open");
-            menuToggle.setAttribute("aria-expanded", "false");
-            menuToggle.setAttribute("aria-label", "Open navigation menu");
-            const icon = menuToggle.querySelector(".mobile-nav-toggle-icon");
-            if (icon) icon.textContent = "☰";
-        };
         document.addEventListener("keydown", (event) => {
             if (event.key === "Escape") closeMenu();
         });
         document.addEventListener("click", (event) => {
-            if (!sidebar.contains(event.target)) closeMenu();
+            if (sidebar.classList.contains("mobile-nav-open") && !sidebar.contains(event.target)) {
+                closeMenu();
+            }
         });
     }
 
     if (nav && !nav.querySelector("[data-home-link]")) {
         const homeLink = document.createElement("a");
-
         homeLink.href = "#";
         homeLink.textContent = "Home";
         homeLink.dataset.homeLink = "true";
-
         nav.prepend(homeLink);
     }
 
     $$(".sidebar nav a").forEach((link) => {
         link.addEventListener("click", (event) => {
             event.preventDefault();
-
+            closeMenu();
             if (link.hasAttribute("data-home-link")) {
-                if (sidebar) sidebar.classList.remove("mobile-nav-open");
-                if (menuToggle) {
-                    menuToggle.setAttribute("aria-expanded", "false");
-                    menuToggle.setAttribute("aria-label", "Open navigation menu");
-                    const icon = menuToggle.querySelector(".mobile-nav-toggle-icon");
-                    if (icon) icon.textContent = "☰";
-                }
                 switchView("home");
                 return;
             }
-
-            const label = link.textContent.trim().toLowerCase();
-            const view = viewMap[label];
-            if (sidebar) sidebar.classList.remove("mobile-nav-open");
-            if (menuToggle) {
-                menuToggle.setAttribute("aria-expanded", "false");
-                menuToggle.setAttribute("aria-label", "Open navigation menu");
-                const icon = menuToggle.querySelector(".mobile-nav-toggle-icon");
-                if (icon) icon.textContent = "☰";
-            }
-
-            if (view) {
-                switchView(view);
-            }
+            const view = viewMap[link.textContent.trim().toLowerCase()];
+            if (view) switchView(view);
         });
     });
 
     $$(".brand, .sidebar-brand").forEach((brand) => {
         brand.addEventListener("click", (event) => {
             event.preventDefault();
+            closeMenu();
             switchView("home");
         });
     });
@@ -361,6 +347,7 @@ function setupNavigation() {
     $$("[data-open-quiz]").forEach((button) => {
         button.addEventListener("click", (event) => {
             event.preventDefault();
+            closeMenu();
             switchView("quiz");
         });
     });
@@ -368,6 +355,7 @@ function setupNavigation() {
     $$("[data-open-view]").forEach((button) => {
         button.addEventListener("click", (event) => {
             event.preventDefault();
+            closeMenu();
             switchView(button.dataset.openView);
         });
     });
@@ -375,17 +363,13 @@ function setupNavigation() {
     $$("[data-topic-shortcut]").forEach((card) => {
         card.addEventListener("click", () => {
             const topic = card.dataset.topicShortcut;
-
-            if (topic) {
-                selectQuizTopic(topic);
-            }
-
+            if (topic) selectQuizTopic(topic);
+            closeMenu();
             switchView("quiz");
         });
     });
 
     const returnButton = $("#return-dashboard-btn");
-
     if (returnButton) {
         returnButton.addEventListener("click", () => {
             resetQuiz();
