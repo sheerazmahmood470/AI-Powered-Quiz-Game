@@ -927,13 +927,21 @@ function renderQuestion(question) {
 
     const options = normalizeOptions(question.options);
 
-    if (!options.length) {
+    const optionSignatures = options.map((option) =>
+        normalizeDisplayText(option.text).toLowerCase().replace(/[^a-z0-9]/g, "")
+    );
+    const optionsAreValid =
+        options.length === 4 &&
+        options.every((option) => option.text.trim()) &&
+        new Set(optionSignatures).size === 4;
+
+    if (!optionsAreValid) {
         optionsContainer.innerHTML = `
             <p class="quiz-error">
-                No options were received for this question.
+                This question did not pass the answer-option quality check. Please generate a new quiz.
             </p>
         `;
-
+        if (submitButton) submitButton.disabled = true;
         return;
     }
 
