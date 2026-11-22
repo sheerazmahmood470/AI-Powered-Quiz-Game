@@ -3846,3 +3846,65 @@ tbody tr:last-child td {
   cursor: default;
   opacity: 1;
 }
+
+
+/* Final mobile composition: one featured learner portrait, then two side-by-side.
+   Desktop gallery layout is intentionally unchanged. */
+@media (max-width: 850px) {
+  .student-photo-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-auto-flow: row !important;
+    gap: 12px !important;
+    align-items: stretch !important;
+  }
+  .student-photo-grid > .student-photo-large {
+    grid-column: 1 / -1 !important;
+    min-height: 340px !important;
+  }
+  .student-photo-grid > .student-photo:not(.student-photo-large) {
+    grid-column: auto !important;
+    min-width: 0 !important;
+    min-height: 220px !important;
+  }
+  .student-photo-grid > .student-photo img {
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: inherit !important;
+    object-fit: cover !important;
+    transition: transform .45s cubic-bezier(.2,.7,.25,1) !important;
+  }
+  .student-photo-grid > .student-photo-large img { min-height: 340px !important; }
+  .student-photo-grid > .student-photo:not(.student-photo-large) img { min-height: 220px !important; }
+  .student-photo-grid > .student-photo figcaption {
+    left: 14px !important;
+    right: 10px !important;
+    bottom: 14px !important;
+  }
+  .student-photo-grid > .student-photo figcaption strong {
+    font-size: clamp(13px, 3.6vw, 17px) !important;
+    line-height: 1.2 !important;
+  }
+  .sidebar .brand-logo {
+    width: 53px !important;
+    height: 53px !important;
+    flex-basis: 53px !important;
+  }
+}
+@media (max-width: 520px) {
+  .student-photo-grid { gap: 10px !important; }
+  .student-photo-grid > .student-photo-large { min-height: 310px !important; }
+  .student-photo-grid > .student-photo-large img { min-height: 310px !important; }
+  .student-photo-grid > .student-photo:not(.student-photo-large),
+  .student-photo-grid > .student-photo:not(.student-photo-large) img { min-height: 190px !important; }
+  .sidebar .brand-logo {
+    width: 51px !important;
+    height: 51px !important;
+    flex-basis: 51px !important;
+  }
+}
+/* A modest brand-mark increase on desktop too. */
+@media (min-width: 851px) {
+  .sidebar .brand-logo { width: 58px !important; height: 58px !important; }
+}
