@@ -13,7 +13,10 @@
 #include "quiz_engine.h"
 
 #define PORT 8080
-#define HISTORY_FILE "history.json"
+static const char *history_file_path(void) {
+    const char *configured = getenv("QUIZ_HISTORY_FILE");
+    return (configured && configured[0]) ? configured : "history.json";
+}
 
 #define MAX_SESSIONS 100
 #define MAX_REQUEST_BODY 8192
