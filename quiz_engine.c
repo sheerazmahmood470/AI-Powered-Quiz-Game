@@ -465,6 +465,53 @@ static void shuffle_questions(Question *questions, int count) {
     }
 }
 
+
+/* Shuffle all four choices and balance the correct answer across A/B/C/D.
+   For 10 questions the counts are 3/3/2/2; for 15 they are 4/4/4/3.
+   The correct option letter is updated together with its text. */
+static void shuffle_answer_options(Question *questions, int count) {
+    if (!questions || count <= 0 || count > WEB_MAX_QUESTIONS) return;
+
+    int correct_positions[WEB_MAX_QUESTIONS];
+    for (int i = 0; i < count; i++) correct_positions[i] = i % 4;
+    for (int i = count - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        int temp = correct_positions[i];
+        correct_positions[i] = correct_positions[j];
+        correct_positions[j] = temp;
+    }
+
+    for (int i = 0; i < count; i++) {
+        Question *q = &questions[i];
+        int original_correct = q->correct_option - 'A';
+        if (original_correct < 0 || original_correct > 3) continue;
+
+        int order[4] = {0, 1, 2, 3};
+        for (int k = 3; k > 0; k--) {
+            int j = rand() % (k + 1);
+            int temp = order[k];
+            order[k] = order[j];
+            order[j] = temp;
+        }
+
+        int correct_at = 0;
+        for (int k = 0; k < 4; k++) {
+            if (order[k] == original_correct) { correct_at = k; break; }
+        }
+        int target = correct_positions[i];
+        int temp = order[target];
+        order[target] = order[correct_at];
+        order[correct_at] = temp;
+
+        char shuffled[4][OPTION_LEN];
+        for (int k = 0; k < 4; k++) {
+            snprintf(shuffled[k], sizeof(shuffled[k]), "%s", q->options[order[k]]);
+        }
+        memcpy(q->options, shuffled, sizeof(shuffled));
+        q->correct_option = (char)('A' + target);
+    }
+}
+
 /* ================= LOAD HISTORY ================= */
 
 static int load_history(
@@ -675,6 +722,9 @@ int quiz_engine_start(
         fprintf(stderr, "[AI] Quiz cancelled: could not generate a complete fresh, non-repeating batch.\n");
         goto cleanup;
     }
+
+    /* Randomize option order before exposing or persisting this batch. */
+    shuffle_answer_options(fresh_batch, question_count);
 
     /* Append this completed batch to the per-topic rolling history.
        Keep the newest 300 questions; remove only the oldest when full. */
@@ -946,6 +996,8 @@ int quiz_engine_start_offline(
         memset(session, 0, sizeof(*session));
         return 0;
     }
+
+    shuffle_answer_options(session->questions, selected_count);
 
     session->total_questions = question_count;
     session->current_question = 0;
