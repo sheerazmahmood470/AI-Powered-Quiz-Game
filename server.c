@@ -422,23 +422,34 @@ static enum MHD_Result handle_start_quiz(
 
     cJSON_Delete(input);
 
-    cJSON *output = NULL;
+    /* Gemini generation is network-bound. Do not hold the global session
+       mutex while waiting, or every existing quiz answer/API request stalls. */
+    WebQuizSession generated_quiz;
+    memset(&generated_quiz, 0, sizeof(generated_quiz));
+    int started = quiz_engine_start(
+        &generated_quiz,
+        player_name,
+        topic_name,
+        question_count
+    );
+    if (!started) {
+        return send_error(
+            connection,
+            MHD_HTTP_BAD_GATEWAY,
+            "AI question generation failed. Check Render logs for the [AI] Gemini error response; the website quiz uses live Gemini generation."
+        );
+    }
 
     pthread_mutex_lock(&sessions_mutex);
-
     ServerSession *slot = NULL;
-
     for (int i = 0; i < MAX_SESSIONS; i++) {
-        if (!sessions[i].used ||
-            sessions[i].quiz.completed) {
+        if (!sessions[i].used || sessions[i].quiz.completed) {
             slot = &sessions[i];
             break;
         }
     }
-
     if (!slot) {
         pthread_mutex_unlock(&sessions_mutex);
-
         return send_error(
             connection,
             MHD_HTTP_SERVICE_UNAVAILABLE,
@@ -447,28 +458,9 @@ static enum MHD_Result handle_start_quiz(
     }
 
     memset(slot, 0, sizeof(*slot));
-
-    int started = quiz_engine_start(
-        &slot->quiz,
-        player_name,
-        topic_name,
-        question_count
-    );
-
-    if (!started) {
-        pthread_mutex_unlock(&sessions_mutex);
-
-        return send_error(
-            connection,
-            MHD_HTTP_BAD_GATEWAY,
-            "AI question generation failed. Check Render logs for the [AI] Gemini error response; the website quiz uses live Gemini generation."
-        );
-    }
-
+    slot->quiz = generated_quiz;
     slot->used = 1;
-
     session_counter++;
-
     snprintf(
         slot->quiz.session_id,
         sizeof(slot->quiz.session_id),
@@ -477,48 +469,21 @@ static enum MHD_Result handle_start_quiz(
         session_counter
     );
 
-    output = cJSON_CreateObject();
-
+    cJSON *output = cJSON_CreateObject();
     if (!output) {
         slot->used = 0;
         pthread_mutex_unlock(&sessions_mutex);
         return MHD_NO;
     }
-
     cJSON_AddBoolToObject(output, "success", 1);
-
-    cJSON_AddStringToObject(
-        output,
-        "session_id",
-        slot->quiz.session_id
-    );
-
-    cJSON_AddStringToObject(
-        output,
-        "player",
-        slot->quiz.player
-    );
-
-    cJSON_AddStringToObject(
-        output,
-        "topic",
-        slot->quiz.topic
-    );
-
-    cJSON_AddNumberToObject(
-        output,
-        "total_questions",
-        slot->quiz.total_questions
-    );
-
+    cJSON_AddStringToObject(output, "session_id", slot->quiz.session_id);
+    cJSON_AddStringToObject(output, "player", slot->quiz.player);
+    cJSON_AddStringToObject(output, "topic", slot->quiz.topic);
+    cJSON_AddNumberToObject(output, "total_questions", slot->quiz.total_questions);
     cJSON_AddItemToObject(
         output,
         "current_question",
-        create_question_json(
-            &slot->quiz.questions[0],
-            0,
-            slot->quiz.total_questions
-        )
+        create_question_json(&slot->quiz.questions[0], 0, slot->quiz.total_questions)
     );
 
     pthread_mutex_unlock(&sessions_mutex);
