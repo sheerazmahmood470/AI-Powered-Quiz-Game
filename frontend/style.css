@@ -1508,6 +1508,16 @@ img {
   line-height: 1.8;
 }
 
+.quiz-controls #previous-question-btn {
+  background: transparent;
+  color: var(--text-primary, #1d2939);
+  border: 1px solid var(--border-color, rgba(100,116,139,.28));
+  box-shadow: none;
+}
+.quiz-controls #previous-question-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--accent, #7c8cff);
+}
 .quiz-controls {
   display: flex;
   gap: 12px;
