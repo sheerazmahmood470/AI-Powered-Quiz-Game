@@ -951,7 +951,7 @@ function renderQuestion(question) {
     });
 
     if (answerSubmitted && feedback) {
-        feedback.innerHTML = '<div class="answer-feedback"><div class="feedback-heading">Answer saved</div><p>Your selection is محفوظ. You can review this question or continue.</p></div>';
+        feedback.innerHTML = '<div class="answer-feedback"><div class="feedback-heading">Answer saved</div><p>Your selection is saved. You can review this question or continue.</p></div>';
     }
     updateSubmitButton();
 }
@@ -1646,6 +1646,7 @@ function setupHeroVisual() {
 function setupQuizButtons() {
     const startButton = $("#start-quiz-btn");
     const submitButton = $("#submit-answer-btn");
+    const previousButton = $("#previous-question-btn");
     const nextButton = $("#next-question-btn");
 
     if (startButton) {
@@ -1663,6 +1664,14 @@ function setupQuizButtons() {
         submitButton.addEventListener("click", (event) => {
             event.preventDefault();
             submitAnswer();
+        });
+    }
+
+    if (previousButton) {
+        previousButton.type = "button";
+        previousButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            previousQuestion();
         });
     }
 
