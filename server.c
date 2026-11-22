@@ -488,6 +488,18 @@ static enum MHD_Result handle_start_quiz(
         create_question_json(&slot->quiz.questions[0], 0, slot->quiz.total_questions)
     );
 
+    /* Preload the entire question set for instant local navigation.
+       Correct answers and explanations remain server-side until submission. */
+    cJSON *question_cache = cJSON_AddArrayToObject(output, "question_cache");
+    if (question_cache) {
+        for (int i = 0; i < slot->quiz.total_questions; i++) {
+            cJSON *cached_question = create_question_json(
+                &slot->quiz.questions[i], i, slot->quiz.total_questions
+            );
+            if (cached_question) cJSON_AddItemToArray(question_cache, cached_question);
+        }
+    }
+
     pthread_mutex_unlock(&sessions_mutex);
 
     return send_json(
