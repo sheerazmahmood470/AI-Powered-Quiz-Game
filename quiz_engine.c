@@ -361,7 +361,12 @@ static void shuffle_questions(Question *questions, int count) {
 static int load_history(
     HistoryRecord records[MAX_HISTORY]
 ) {
-    FILE *file = fopen("history.json", "r");
+    FILE *file = fopen(history_file_path(), "r");
+
+    /* Migrate existing bundled history on the first persistent-disk boot. */
+    if (!file && strcmp(history_file_path(), "history.json") != 0) {
+        file = fopen("history.json", "r");
+    }
 
     if (!file) return 0;
 
@@ -502,8 +507,8 @@ static int save_history(
 
     free(data);
 
-    if (!ok || rename("history.json.tmp", "history.json") != 0) {
-        remove("history.json.tmp");
+    if (!ok || rename(temp_path, history_file_path()) != 0) {
+        remove(temp_path);
         return 0;
     }
 
