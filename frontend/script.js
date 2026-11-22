@@ -200,7 +200,8 @@ const viewMap = {
     "leaderboard": "leaderboard",
     "quiz history": "history",
     "history": "history",
-    "analytics": "analytics"
+    "analytics": "analytics",
+    "reviews": "reviews"
 };
 
 const pageIds = {
@@ -208,7 +209,8 @@ const pageIds = {
     quiz: "start-quiz-page",
     analytics: "analytics-page",
     leaderboard: "leaderboard-page",
-    history: "history-page"
+    history: "history-page",
+    reviews: "reviews-page"
 };
 
 function switchView(viewName) {
@@ -275,6 +277,9 @@ function switchView(viewName) {
 
     if (view === "analytics") {
         loadAnalytics();
+    }
+    if (view === "reviews") {
+        loadReviews();
     }
 
     window.scrollTo({
@@ -1670,6 +1675,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     setupNavigation();
+    setupReviews();
     setupTopicSelection();
     setupQuizButtons();
     setupTopicSearch();
@@ -1692,3 +1698,121 @@ document.addEventListener("DOMContentLoaded", () => {
     checkBackendConnection();
     loadDashboardData();
 });
+
+
+// -------------------- PUBLIC CUSTOMER REVIEWS --------------------
+let selectedReviewRating = 0;
+let reviewRecords = [];
+const reviewRatingWords = ["", "Poor", "Fair", "Good", "Very good", "Excellent"];
+
+function renderReviewRatingPicker() {
+    const picker = $("#review-rating-picker");
+    if (!picker) return;
+    picker.querySelectorAll("button[data-rating]").forEach((button) => {
+        const n = Number(button.dataset.rating);
+        button.classList.toggle("selected", n <= selectedReviewRating);
+        button.setAttribute("aria-checked", n === selectedReviewRating ? "true" : "false");
+    });
+    const label = $("#review-rating-label");
+    if (label) label.textContent = selectedReviewRating ? reviewRatingWords[selectedReviewRating] : "Select a rating";
+}
+
+function renderPublicReviews(records) {
+    const list = $("#reviews-list");
+    if (!list) return;
+    const total = records.length;
+    const average = total ? records.reduce((sum, r) => sum + Number(r.rating || 0), 0) / total : 0;
+    $("#reviews-average").textContent = average.toFixed(1);
+    $("#reviews-summary-stars").textContent = "★".repeat(Math.round(average)) + "☆".repeat(5 - Math.round(average));
+    $("#reviews-total-label").textContent = total + (total === 1 ? " public review" : " public reviews");
+    $("#reviews-count-pill").textContent = total + (total === 1 ? " review" : " reviews");
+    $("#reviews-distribution").innerHTML = [5,4,3,2,1].map((rating) => {
+        const count = records.filter((r) => Number(r.rating) === rating).length;
+        const percent = total ? count / total * 100 : 0;
+        return '<div class="review-distribution-row"><span>' + rating + ' ★</span><div class="review-distribution-track"><i style="width:' + percent + '%"></i></div><span>' + count + '</span></div>';
+    }).join("");
+    if (!total) {
+        list.innerHTML = '<p class="empty-state">No reviews yet. Be the first to share your experience.</p>';
+        return;
+    }
+    list.innerHTML = records.slice().sort((a,b) => Number(b.timestamp || 0) - Number(a.timestamp || 0)).map((r) => {
+        const rating = Math.max(1, Math.min(5, Number(r.rating || 0)));
+        const date = r.timestamp ? formatDate(Number(r.timestamp) * 1000) : "Recently";
+        const suggestion = r.suggestion ? '<div class="review-suggestion"><strong>Suggestion</strong><p>' + escapeHTML(r.suggestion) + '</p></div>' : '';
+        return '<article class="public-review-card"><div class="public-review-top"><div class="review-avatar">' +
+            escapeHTML((r.name || "L").trim().charAt(0).toUpperCase()) +
+            '</div><div class="public-review-author"><strong>' + escapeHTML(r.name || "Learner") +
+            '</strong><span>' + escapeHTML(date) + '</span></div><span class="public-review-stars">' +
+            "★".repeat(rating) + "☆".repeat(5-rating) +
+            '</span></div><h4>' + escapeHTML(r.title || "Learner review") +
+            '</h4><p class="public-review-message">' + escapeHTML(r.message || "") +
+            '</p>' + suggestion + '</article>';
+    }).join("");
+}
+
+async function loadReviews() {
+    const list = $("#reviews-list");
+    if (list && !reviewRecords.length) list.innerHTML = '<p class="empty-state">Loading public reviews…</p>';
+    try {
+        const data = await apiRequest("/api/reviews", {cache:"no-store",headers:{"Cache-Control":"no-cache"}});
+        reviewRecords = Array.isArray(data) ? data : [];
+        renderPublicReviews(reviewRecords);
+    } catch (error) {
+        console.error("Reviews loading failed:", error);
+        if (list && !reviewRecords.length) list.innerHTML = '<p class="empty-state">Reviews are temporarily unavailable. Please try again shortly.</p>';
+    }
+}
+
+function setupReviews() {
+    const picker = $("#review-rating-picker");
+    const form = $("#review-form");
+    const message = $("#review-message");
+    const counter = $("#review-message-count");
+    const writeTop = $("#write-review-top");
+    if (picker) picker.querySelectorAll("button[data-rating]").forEach((button) => {
+        button.addEventListener("click", () => {
+            selectedReviewRating = Number(button.dataset.rating);
+            renderReviewRatingPicker();
+        });
+    });
+    if (message && counter) message.addEventListener("input", () => { counter.textContent = String(message.value.length); });
+    if (writeTop) writeTop.addEventListener("click", () => {
+        $("#review-form").scrollIntoView({behavior:"smooth",block:"start"});
+        $("#review-name").focus();
+    });
+    if (!form) return;
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const status = $("#review-form-status");
+        const submit = $("#review-submit-btn");
+        if (!selectedReviewRating) { status.textContent = "Please select a star rating before publishing."; return; }
+        const payload = {
+            name: $("#review-name").value.trim(),
+            rating: selectedReviewRating,
+            title: $("#review-title").value.trim(),
+            message: $("#review-message").value.trim(),
+            suggestion: $("#review-suggestion").value.trim()
+        };
+        if (!payload.name || !payload.title || !payload.message) { status.textContent = "Please complete your name, headline and review."; return; }
+        submit.disabled = true;
+        submit.textContent = "Publishing…";
+        status.textContent = "Saving your review…";
+        try {
+            const result = await apiRequest("/api/reviews", {
+                method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)
+            });
+            status.textContent = result.message || "Your review has been published.";
+            form.reset();
+            selectedReviewRating = 0;
+            counter.textContent = "0";
+            renderReviewRatingPicker();
+            await loadReviews();
+        } catch (error) {
+            status.textContent = error.message || "Your review could not be published. Please try again.";
+        } finally {
+            submit.disabled = false;
+            submit.innerHTML = 'Publish review <span>↗</span>';
+        }
+    });
+    renderReviewRatingPicker();
+}
