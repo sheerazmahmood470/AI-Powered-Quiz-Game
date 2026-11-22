@@ -786,6 +786,64 @@ static enum MHD_Result handle_submit_answer(
     );
 }
 
+
+/* ================= PUBLIC CUSTOMER REVIEWS ================= */
+static pthread_mutex_t reviews_mutex = PTHREAD_MUTEX_INITIALIZER;
+static const char *reviews_file_path(void) {
+    const char *p = getenv("QUIZ_REVIEWS_FILE");
+    if (p && p[0]) return p;
+    p = getenv("QUIZ_HISTORY_FILE");
+    if (p && p[0]) {
+        static char path[512]; const char *slash = strrchr(p, '/');
+        if (slash) { size_t n = (size_t)(slash-p+1); if (n+sizeof("reviews.json")<sizeof(path)) { memcpy(path,p,n); strcpy(path+n,"reviews.json"); return path; } }
+    }
+    return "reviews.json";
+}
+static cJSON *read_reviews(void) {
+    FILE *f=fopen(reviews_file_path(),"rb"); if(!f) return cJSON_CreateArray();
+    if(fseek(f,0,SEEK_END)!=0){fclose(f);return NULL;} long n=ftell(f);
+    if(n<0||n>5000000||fseek(f,0,SEEK_SET)!=0){fclose(f);return NULL;}
+    char *b=malloc((size_t)n+1); if(!b){fclose(f);return NULL;}
+    size_t got=fread(b,1,(size_t)n,f); fclose(f); if(got!=(size_t)n){free(b);return NULL;}
+    b[got]='\0'; cJSON *root=cJSON_Parse(b); free(b);
+    if(!cJSON_IsArray(root)){cJSON_Delete(root);return NULL;} return root;
+}
+static int save_reviews(cJSON *root) {
+    char *data=cJSON_Print(root); if(!data)return 0; char temp[600];
+    int n=snprintf(temp,sizeof(temp),"%s.tmp",reviews_file_path());
+    if(n<0||(size_t)n>=sizeof(temp)){free(data);return 0;}
+    FILE *f=fopen(temp,"wb"); if(!f){free(data);return 0;}
+    int ok=fputs(data,f)>=0; if(fclose(f)!=0)ok=0; free(data);
+    if(!ok||rename(temp,reviews_file_path())!=0){remove(temp);return 0;} return 1;
+}
+static const char *review_value(cJSON *o,const char *key){cJSON *v=cJSON_GetObjectItemCaseSensitive(o,key);return cJSON_IsString(v)?v->valuestring:NULL;}
+static int review_valid(const char *v,size_t max,int required){
+    if(!v)return !required; size_t n=strlen(v); if(n>max||(required&&!n))return 0;
+    for(size_t i=0;i<n;i++){unsigned char c=(unsigned char)v[i];if(c<32&&c!='\n'&&c!='\r'&&c!='\t')return 0;} return 1;
+}
+static enum MHD_Result reviews_get(struct MHD_Connection *c){
+    pthread_mutex_lock(&reviews_mutex);cJSON *root=read_reviews();pthread_mutex_unlock(&reviews_mutex);
+    if(!root)return send_error(c,MHD_HTTP_INTERNAL_SERVER_ERROR,"Reviews storage is unreadable");
+    return send_json(c,MHD_HTTP_OK,root);
+}
+static enum MHD_Result reviews_post(struct MHD_Connection *c,const char *body){
+    cJSON *in=cJSON_Parse(body);if(!cJSON_IsObject(in)){cJSON_Delete(in);return send_error(c,MHD_HTTP_BAD_REQUEST,"Invalid review data");}
+    const char *name=review_value(in,"name"),*title=review_value(in,"title"),*message=review_value(in,"message"),*suggestion=review_value(in,"suggestion");
+    cJSON *rating=cJSON_GetObjectItemCaseSensitive(in,"rating");
+    if(!review_valid(name,60,1)||!review_valid(title,100,1)||!review_valid(message,1500,1)||!review_valid(suggestion,1000,0)||!cJSON_IsNumber(rating)||rating->valueint<1||rating->valueint>5||rating->valuedouble!=rating->valueint){
+        cJSON_Delete(in);return send_error(c,MHD_HTTP_BAD_REQUEST,"Please enter your name, a 1–5 star rating, a headline and review (maximum 1,500 characters).");
+    }
+    long now=(long)time(NULL);cJSON *entry=cJSON_CreateObject();if(!entry){cJSON_Delete(in);return MHD_NO;}
+    char id[64];snprintf(id,sizeof(id),"review-%ld-%u",now,(unsigned int)rand());
+    cJSON_AddStringToObject(entry,"id",id);cJSON_AddStringToObject(entry,"name",name);cJSON_AddNumberToObject(entry,"rating",rating->valueint);
+    cJSON_AddStringToObject(entry,"title",title);cJSON_AddStringToObject(entry,"message",message);cJSON_AddStringToObject(entry,"suggestion",suggestion?suggestion:"");cJSON_AddNumberToObject(entry,"timestamp",now);cJSON_Delete(in);
+    pthread_mutex_lock(&reviews_mutex);cJSON *root=read_reviews();int ok=root&&cJSON_GetArraySize(root)<5000;
+    int appended=0;if(ok){cJSON_AddItemToArray(root,entry);appended=1;ok=save_reviews(root);}if(!appended)cJSON_Delete(entry);cJSON_Delete(root);pthread_mutex_unlock(&reviews_mutex);
+    if(!ok)return send_error(c,MHD_HTTP_INTERNAL_SERVER_ERROR,"Your review could not be saved. Please try again.");
+    cJSON *out=cJSON_CreateObject();if(!out)return MHD_NO;cJSON_AddBoolToObject(out,"success",1);cJSON_AddStringToObject(out,"message","Thank you. Your review has been published.");
+    return send_json(c,MHD_HTTP_CREATED,out);
+}
+
 /* ================= HEALTH CHECK ================= */
 
 static enum MHD_Result handle_health_check(
@@ -944,6 +1002,9 @@ static enum MHD_Result answer_to_connection(
         if (strcmp(url, "/api/history") == 0) {
             return handle_history_api(connection);
         }
+        if (strcmp(url, "/api/reviews") == 0) {
+            return reviews_get(connection);
+        }
 
         return send_error(
             connection,
@@ -953,7 +1014,11 @@ static enum MHD_Result answer_to_connection(
     }
 
     /* POST routes */
-    if (strcmp(method, "POST") == 0) {
+    if (strcmp(method, "POST") == 0) { 
+        if (strcmp(url, "/api/reviews") == 0) {
+            return reviews_post(connection, request->body);
+        }
+
         if (strcmp(url, "/api/quiz/start") == 0) {
             return handle_start_quiz(
                 connection,
