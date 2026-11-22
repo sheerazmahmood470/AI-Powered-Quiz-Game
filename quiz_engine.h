@@ -39,4 +39,10 @@ int quiz_engine_submit_answer(
     char answer
 );
 
+int quiz_engine_submit_answers(
+    WebQuizSession *session,
+    const char *answers,
+    int answer_count
+);
+
 #endif

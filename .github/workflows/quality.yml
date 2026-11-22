@@ -27,3 +27,5 @@ jobs:
         run: node --check frontend/script.js
       - name: Run frontend MCQ formatting tests
         run: node tests/mcq_format.test.js
+      - name: Run cached quiz flow regression tests
+        run: node tests/quiz_flow.test.js

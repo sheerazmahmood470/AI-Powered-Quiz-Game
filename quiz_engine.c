@@ -826,6 +826,25 @@ int quiz_engine_submit_answer(
     return correct ? 1 : 0;
 }
 
+
+/* Validate and score an entire quiz in one operation; persist history once. */
+int quiz_engine_submit_answers(WebQuizSession *session, const char *answers, int answer_count) {
+    if (!session || !answers || session->completed || session->current_question != 0 ||
+        session->total_questions <= 0 || session->total_questions > WEB_MAX_QUESTIONS ||
+        answer_count != session->total_questions) return -1;
+    for (int i = 0; i < answer_count; i++) {
+        char answer = (char)toupper((unsigned char)answers[i]);
+        if (answer < 'A' || answer > 'D') return -1;
+    }
+    int final_result = 0;
+    for (int i = 0; i < answer_count; i++) {
+        final_result = quiz_engine_submit_answer(session, answers[i]);
+        if (final_result == -1) return -1;
+        if (i < answer_count - 1 && session->completed) return -1;
+    }
+    return final_result == -2 ? -2 : 1;
+}
+
 /* ================= OFFLINE TERMINAL QUIZ ================= */
 
 int quiz_engine_start_offline(
