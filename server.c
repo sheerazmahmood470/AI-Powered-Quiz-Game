@@ -531,9 +531,10 @@ static enum MHD_Result handle_start_quiz(
     snprintf(
         slot->quiz.session_id,
         sizeof(slot->quiz.session_id),
-        "quiz-%ld-%lu",
+        "quiz-%ld-%lu-%u",
         (long)time(NULL),
-        session_counter
+        session_counter,
+        (unsigned int)rand()
     );
 
     if (!persist_active_quiz_session(&slot->quiz)) {
@@ -852,7 +853,7 @@ static enum MHD_Result handle_complete_quiz(struct MHD_Connection *connection,co
     pthread_mutex_lock(&sessions_mutex);
     ServerSession *slot=find_session(id);
     if(!slot){
-        WebQuizSession restored;char old_answers[WEB_MAX_QUESTIONS+1]={0},old_response[8192]={0};
+        WebQuizSession restored;char old_answers[WEB_MAX_QUESTIONS+1]={0},old_response[65536]={0};
         int state=restore_quiz_session(id,&restored,old_answers,sizeof(old_answers),old_response,sizeof(old_response));
         if(state==2){pthread_mutex_unlock(&sessions_mutex);if(strcmp(old_answers,answers)==0){cJSON *cached=cJSON_Parse(old_response);if(cached)return send_json(connection,MHD_HTTP_OK,cached);}return send_error(connection,MHD_HTTP_CONFLICT,"This quiz was already completed with a different answer set.");}
         if(state==1){for(int i=0;i<MAX_SESSIONS;i++)if(!sessions[i].used||sessions[i].quiz.completed){slot=&sessions[i];break;}if(slot){memset(slot,0,sizeof(*slot));slot->quiz=restored;slot->used=1;}}
@@ -860,7 +861,7 @@ static enum MHD_Result handle_complete_quiz(struct MHD_Connection *connection,co
     if(!slot){pthread_mutex_unlock(&sessions_mutex);return send_error(connection,MHD_HTTP_NOT_FOUND,"Quiz session expired. Please start a new quiz.");}
     if(slot->quiz.completed){
         int same=strcmp(slot->completion_answers,answers)==0&&slot->completion_response[0];
-        char saved[8192];snprintf(saved,sizeof(saved),"%s",slot->completion_response);pthread_mutex_unlock(&sessions_mutex);
+        char saved[65536];snprintf(saved,sizeof(saved),"%s",slot->completion_response);pthread_mutex_unlock(&sessions_mutex);
         if(same){cJSON *cached=cJSON_Parse(saved);if(cached)return send_json(connection,MHD_HTTP_OK,cached);}
         return send_error(connection,MHD_HTTP_CONFLICT,"This quiz was already completed with a different answer set.");
     }
