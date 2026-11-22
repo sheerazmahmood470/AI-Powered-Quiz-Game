@@ -24,6 +24,7 @@ RUN gcc -o /tmp/mcq_quality_test tests/mcq_quality_test.c -lcurl -lcjson \
     && /tmp/mcq_quality_test \
     && node --check frontend/script.js \
     && node tests/mcq_format.test.js \
+    && node tests/quiz_flow.test.js \
     && rm -f /tmp/mcq_quality_test
 
 COPY start.sh /app/start.sh
