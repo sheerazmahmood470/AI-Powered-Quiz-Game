@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libmicrohttpd-dev \
     libcurl4-openssl-dev \
     libcjson-dev \
+    libpq-dev \
     nginx \
     gettext-base \
     ca-certificates \
@@ -14,8 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY . .
 
-RUN gcc -o web_server server.c quiz_engine.c ai.c \
-    -lmicrohttpd -lcurl -lcjson -pthread -lm -Wall -Wextra
+RUN gcc -o web_server server.c quiz_engine.c ai.c storage.c \
+    -I/usr/include/postgresql \
+    -lmicrohttpd -lcurl -lcjson -lpq -pthread -lm -Wall -Wextra
 
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
