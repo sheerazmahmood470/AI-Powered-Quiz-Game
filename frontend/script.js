@@ -17,6 +17,7 @@ let currentQuestionIndex = 0;
 let selectedAnswer = null;
 let quizStartTime = null;
 let answerSubmitted = false;
+let answerSubmitting = false;
 let historyData = [];
 let analyticsChart = null;
 let selectedTopic = "AI & ML";
@@ -784,6 +785,7 @@ async function startQuiz() {
 
         selectedAnswer = null;
         answerSubmitted = false;
+        answerSubmitting = false;
         window.quizNextQuestion = null;
 
         quizStartTime = Date.now();
@@ -880,6 +882,7 @@ function renderQuestion(question) {
     currentQuestion = question;
     selectedAnswer = null;
     answerSubmitted = false;
+    answerSubmitting = false;
 
     const questionNumber = Number(question.number || 1);
     const totalQuestions = Number(
@@ -1017,10 +1020,12 @@ async function submitAnswer() {
         return;
     }
 
-    if (answerSubmitted) return;
+    if (answerSubmitted || answerSubmitting) return;
 
+    /* Lock immediately, before the network request starts. This prevents
+       rapid/double clicks from submitting the same session question twice. */
+    answerSubmitting = true;
     const submitButton = $("#submit-answer-btn");
-
     setButtonLoading(submitButton, true);
 
     try {
@@ -1050,9 +1055,11 @@ async function submitAnswer() {
         }
 
     } catch (error) {
+        answerSubmitting = false;
         console.error("Answer submission error:", error);
-        showToast(error.message || "Unable to submit answer.");
+        showToast(error.message || "Unable to submit answer. Please retry once.");
     } finally {
+        if (answerSubmitted) answerSubmitting = false;
         setButtonLoading(
             submitButton,
             false,
@@ -1196,6 +1203,9 @@ function resetQuiz() {
     currentQuestion = null;
     selectedAnswer = null;
     answerSubmitted = false;
+    answerSubmitting = false;
+    quizQuestionCache = [];
+    currentQuestionIndex = 0;
     quizStartTime = null;
     window.quizNextQuestion = null;
 
