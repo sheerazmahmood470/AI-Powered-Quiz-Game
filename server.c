@@ -840,7 +840,6 @@ static enum MHD_Result handle_health_check(struct MHD_Connection *connection) {
     cJSON_AddStringToObject(json,"history_storage",db_configured?(readable?"neon-postgresql":"database-unavailable"):"local-development");
     return send_json(connection,db_configured&&!readable?MHD_HTTP_SERVICE_UNAVAILABLE:MHD_HTTP_OK,json);
 }
-
 /* ================= REQUEST COMPLETED ================= */
 
 static void request_completed(
