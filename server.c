@@ -959,6 +959,10 @@ static enum MHD_Result answer_to_connection(
             return handle_health_check(connection);
         }
 
+        if (strcmp(url, "/api/health") == 0) {
+            return handle_health_check(connection);
+        }
+
         if (strcmp(url, "/api/history") == 0) {
             return handle_history_api(connection);
         }
