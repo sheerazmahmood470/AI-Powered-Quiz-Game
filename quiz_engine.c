@@ -364,7 +364,7 @@ static int load_history(
 ) {
     char *data = NULL;
     if (storage_is_configured()) {
-        data = storage_read_json("history");
+        data = storage_read_history_json();
         if (!data) return -1;
     } else {
         FILE *file = fopen(history_file_path(), "r");
@@ -630,61 +630,47 @@ int quiz_engine_submit_answer(
 
         if (duration < 0) duration = 0;
 
-        HistoryRecord *records =
-            calloc(MAX_HISTORY, sizeof(HistoryRecord));
-
-        if (!records) {
-            session->completed = 1;
-            return -2;
-        }
-
         int saved = 0;
-
-        pthread_mutex_lock(&history_mutex);
-
-        int history_count = load_history(records);
-
-        if (history_count >= 0 && history_count < MAX_HISTORY) {
-            HistoryRecord *record = &records[history_count];
-
-            snprintf(
-                record->name,
-                sizeof(record->name),
-                "%s",
-                session->player
-            );
-
-            snprintf(
-                record->topic,
-                sizeof(record->topic),
-                "%s",
-                session->topic
-            );
-
-            record->score = session->correct_answers;
-            record->total = session->total_questions;
-            record->seconds = duration;
-
-            time_t timestamp = time(NULL);
-            struct tm local_time;
-
-            record->timestamp = (long)timestamp;
-
-            if (localtime_r(&timestamp, &local_time) != NULL) {
-                strftime(
-                    record->date,
-                    sizeof(record->date),
-                    "%d-%m-%Y %I:%M %p",
-                    &local_time
-                );
-
-                saved = save_history(records, history_count + 1);
+        time_t timestamp = time(NULL);
+        struct tm local_time;
+        char date[40] = "Unavailable";
+        if (localtime_r(&timestamp, &local_time) != NULL) {
+            strftime(date, sizeof(date), "%d-%m-%Y %I:%M %p", &local_time);
+            HistoryRecord record;
+            memset(&record, 0, sizeof(record));
+            snprintf(record.name, sizeof(record.name), "%s", session->player);
+            snprintf(record.topic, sizeof(record.topic), "%s", session->topic);
+            record.score=session->correct_answers; record.total=session->total_questions;
+            record.seconds=duration; record.timestamp=(long)timestamp;
+            if(storage_is_configured()) {
+                cJSON *item=cJSON_CreateObject();
+                if(item) {
+                    cJSON_AddStringToObject(item,"name",record.name);
+                    cJSON_AddStringToObject(item,"topic",record.topic);
+                    cJSON_AddNumberToObject(item,"score",record.score);
+                    cJSON_AddNumberToObject(item,"total",record.total);
+                    cJSON_AddNumberToObject(item,"seconds",record.seconds);
+                    cJSON_AddStringToObject(item,"date",date);
+                    cJSON_AddNumberToObject(item,"timestamp",record.timestamp);
+                    char *json=cJSON_PrintUnformatted(item);
+                    if(json){saved=storage_append_history_json(json);free(json);}
+                    cJSON_Delete(item);
+                }
+            } else {
+                HistoryRecord *records=calloc(MAX_HISTORY,sizeof(HistoryRecord));
+                if(records) {
+                    pthread_mutex_lock(&history_mutex);
+                    int history_count=load_history(records);
+                    if(history_count>=0&&history_count<MAX_HISTORY) {
+                        records[history_count]=record;
+                        snprintf(records[history_count].date,sizeof(records[history_count].date),"%s",date);
+                        saved=save_history(records,history_count+1);
+                    }
+                    pthread_mutex_unlock(&history_mutex);
+                    free(records);
+                }
             }
         }
-
-        pthread_mutex_unlock(&history_mutex);
-
-        free(records);
 
         session->completed = 1;
 
