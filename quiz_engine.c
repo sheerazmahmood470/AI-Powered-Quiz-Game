@@ -351,18 +351,17 @@ static int question_exists(
    Every new quiz generates one fresh full batch (never one request/question).
    The browser still receives the whole batch at quiz start for instant navigation.
 */
-static Question process_question_cache[5][2][WEB_MAX_QUESTIONS];
-static int process_question_cache_ready[5][2];
+static Question process_question_cache[5][WEB_MAX_QUESTIONS];
+static int process_question_cache_count[5];
+static int process_question_cache_ready[5];
 
 static int load_ai_question_cache(
     int topic_index,
-    int question_count,
     Question *destination
 ) {
     if (!storage_is_configured()) return 0;
     char key[80];
-    snprintf(key, sizeof(key), "ai_questions_v2_%d_%d",
-             topic_index, question_count);
+    snprintf(key, sizeof(key), "ai_questions_v2_%d", topic_index);
     char *data = storage_read_json(key);
     if (!data) return 0;
     cJSON *root = cJSON_Parse(data);
@@ -372,7 +371,7 @@ static int load_ai_question_cache(
     int accepted = 0;
     if (cJSON_IsArray(items)) {
         int total = cJSON_GetArraySize(items);
-        for (int i = 0; i < total && accepted < question_count; i++) {
+        for (int i = 0; i < total && accepted < WEB_MAX_QUESTIONS; i++) {
             Question candidate;
             memset(&candidate, 0, sizeof(candidate));
             if (!question_from_json(cJSON_GetArrayItem(items, i), &candidate))
@@ -383,7 +382,7 @@ static int load_ai_question_cache(
         }
     }
     cJSON_Delete(root);
-    return accepted == question_count ? accepted : 0;
+    return accepted;
 }
 
 static int save_ai_question_cache(
@@ -393,8 +392,7 @@ static int save_ai_question_cache(
 ) {
     if (!storage_is_configured() || !questions) return 0;
     char key[80];
-    snprintf(key, sizeof(key), "ai_questions_v2_%d_%d",
-             topic_index, question_count);
+    snprintf(key, sizeof(key), "ai_questions_v2_%d", topic_index);
     cJSON *root = cJSON_CreateObject();
     cJSON *items = root ? cJSON_AddArrayToObject(root, "questions") : NULL;
     if (!items) { cJSON_Delete(root); return 0; }
@@ -415,6 +413,7 @@ static int generate_fresh_batch(
     int topic_index,
     int question_count,
     const Question *previous,
+    int previous_count,
     Question *destination
 ) {
     for (int attempt = 1; attempt <= 3; attempt++) {
@@ -425,11 +424,11 @@ static int generate_fresh_batch(
 
         /* Gemini accepts up to eight exclusions. Vary which previous questions
            are supplied, then independently reject repeats against the full batch. */
-        int previous_count = previous ? question_count : 0;
-        task.excluded_count = previous_count < 8 ? previous_count : 8;
+        int available_previous = previous ? previous_count : 0;
+        task.excluded_count = available_previous < 8 ? available_previous : 8;
         for (int i = 0; i < task.excluded_count; i++) {
             int source = (attempt == 1) ? i :
-                (i + (attempt - 1) * 3) % previous_count;
+                (i + (attempt - 1) * 3) % available_previous;
             task.excluded[i] = previous[source];
         }
 
@@ -440,7 +439,7 @@ static int generate_fresh_batch(
 
         int accepted = 0;
         for (int i = 0; i < task.generated_count; i++) {
-            if (previous && question_exists(&task.generated[i], previous, question_count))
+            if (previous && question_exists(&task.generated[i], previous, previous_count))
                 continue;
             if (question_exists(&task.generated[i], destination, accepted))
                 continue;
@@ -645,43 +644,43 @@ int quiz_engine_start(
     snprintf(session->player, sizeof(session->player), "%s", player);
     snprintf(session->topic, sizeof(session->topic), "%s", field_names[topic_index]);
 
-    int cache_slot = (question_count == 10) ? 0 : 1;
     Question previous_batch[WEB_MAX_QUESTIONS];
     Question fresh_batch[WEB_MAX_QUESTIONS];
     memset(previous_batch, 0, sizeof(previous_batch));
     memset(fresh_batch, 0, sizeof(fresh_batch));
 
-    int have_previous = 0;
-    if (process_question_cache_ready[topic_index][cache_slot]) {
-        memcpy(previous_batch, process_question_cache[topic_index][cache_slot],
-               (size_t)question_count * sizeof(Question));
-        have_previous = 1;
+    int previous_count = 0;
+    if (process_question_cache_ready[topic_index]) {
+        previous_count = process_question_cache_count[topic_index];
+        memcpy(previous_batch, process_question_cache[topic_index],
+               (size_t)previous_count * sizeof(Question));
     } else {
-        have_previous = load_ai_question_cache(
-            topic_index, question_count, previous_batch
-        ) == question_count;
-        if (have_previous) {
-            printf("[CACHE] Loaded previous %d-question %s batch for no-repeat protection.\\n",
-                   question_count, field_names[topic_index]);
+        previous_count = load_ai_question_cache(topic_index, previous_batch);
+        if (previous_count > 0) {
+            memcpy(process_question_cache[topic_index], previous_batch,
+                   (size_t)previous_count * sizeof(Question));
+            process_question_cache_count[topic_index] = previous_count;
+            process_question_cache_ready[topic_index] = 1;
         }
     }
 
-    /* A new quiz always gets a newly generated full batch. The old batch is
-       used only as a duplicate-exclusion reference, never replayed as the quiz. */
+    /* The no-repeat history is shared by 10- and 15-question quizzes,
+       so changing quiz length cannot bring back the previous field's questions. */
     if (!generate_fresh_batch(
             topic_index, question_count,
-            have_previous ? previous_batch : NULL,
-            fresh_batch)) {
+            previous_count ? previous_batch : NULL,
+            previous_count, fresh_batch)) {
         fprintf(stderr, "[AI] Quiz cancelled: could not generate a complete fresh, non-repeating batch.\\n");
         goto cleanup;
     }
 
-    memcpy(process_question_cache[topic_index][cache_slot], fresh_batch,
+    memcpy(process_question_cache[topic_index], fresh_batch,
            (size_t)question_count * sizeof(Question));
-    process_question_cache_ready[topic_index][cache_slot] = 1;
+    process_question_cache_count[topic_index] = question_count;
+    process_question_cache_ready[topic_index] = 1;
 
     if (save_ai_question_cache(topic_index, question_count, fresh_batch)) {
-        printf("[CACHE] Saved latest %d-question %s batch for future no-repeat protection.\\n",
+        printf("[CACHE] Saved latest %d-question %s batch for cross-length no-repeat protection.\\n",
                question_count, field_names[topic_index]);
     } else {
         fprintf(stderr, "[CACHE] Persistent no-repeat reference could not be updated; current batch remains available in memory.\\n");
