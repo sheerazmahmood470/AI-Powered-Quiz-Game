@@ -793,9 +793,17 @@ static int save_reviews(cJSON *root) {
     if(!ok||rename(temp,reviews_file_path())!=0){remove(temp);return 0;} return 1;
 }
 static const char *review_value(cJSON *o,const char *key){cJSON *v=cJSON_GetObjectItemCaseSensitive(o,key);return cJSON_IsString(v)?v->valuestring:NULL;}
-static int review_valid(const char *v,size_t max,int required){
-    if(!v)return !required; size_t n=strlen(v); if(n>max||(required&&!n))return 0;
-    for(size_t i=0;i<n;i++){unsigned char c=(unsigned char)v[i];if(c<32&&c!='\n'&&c!='\r'&&c!='\t')return 0;} return 1;
+static int review_valid(const char *v, size_t max, int required) {
+    if (!v) return !required;
+
+    size_t n = strlen(v);
+    if (n > max || (required && !n)) return 0;
+
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)v[i];
+        if (c < 32 && c != '\n' && c != '\r' && c != '\t') return 0;
+    }
+    return 1;
 }
 static enum MHD_Result reviews_get(struct MHD_Connection *c){
     pthread_mutex_lock(&reviews_mutex);cJSON *root=read_reviews();pthread_mutex_unlock(&reviews_mutex);
