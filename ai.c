@@ -52,7 +52,10 @@ static void unwrap_latex_text(char *text,const char *command) {
     while((p=strstr(p,command))!=NULL){char *open=p+n;if(*open!='{'){p=open;continue;}char *close=strchr(open+1,'}');if(!close){p=open+1;continue;}size_t inner=(size_t)(close-open-1);memmove(p,open+1,inner);memmove(p+inner,close+1,strlen(close+1)+1);p+=inner;}
 }
 static int looks_like_c_code(const char *s) {
-    return strstr(s,"printf")||strstr(s,"scanf")||strstr(s,"#include")||strstr(s,"sizeof")||strstr(s,"return ")||strstr(s,"->")||strstr(s,"NULL")||strstr(s,"char ");
+    return strstr(s,"printf")||strstr(s,"scanf")||strstr(s,"#include")||
+           strstr(s,"sizeof")||strstr(s,"return ")||strstr(s,"->")||
+           strstr(s,"NULL")||strstr(s,"char ")||strstr(s,"\\\\n")||
+           strstr(s,"\\\\t")||strstr(s,"\\\\0");
 }
 static int has_unrendered_math_command(const char *text) {
     if (looks_like_c_code(text)) return 0;
