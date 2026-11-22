@@ -276,6 +276,21 @@ function switchView(viewName) {
 
 function setupNavigation() {
     const nav = $(".sidebar nav");
+    const sidebar = $(".sidebar");
+    const menuToggle = $(".mobile-nav-toggle");
+
+    if (menuToggle && sidebar) {
+        menuToggle.addEventListener("click", () => {
+            const expanded = sidebar.classList.toggle("mobile-nav-open");
+            menuToggle.setAttribute("aria-expanded", String(expanded));
+            menuToggle.setAttribute(
+                "aria-label",
+                expanded ? "Close navigation menu" : "Open navigation menu"
+            );
+            const icon = menuToggle.querySelector(".mobile-nav-toggle-icon");
+            if (icon) icon.textContent = expanded ? "✕" : "☰";
+        });
+    }
 
     if (nav && !nav.querySelector("[data-home-link]")) {
         const homeLink = document.createElement("a");
@@ -298,6 +313,13 @@ function setupNavigation() {
 
             const label = link.textContent.trim().toLowerCase();
             const view = viewMap[label];
+            if (sidebar) sidebar.classList.remove("mobile-nav-open");
+            if (menuToggle) {
+                menuToggle.setAttribute("aria-expanded", "false");
+                menuToggle.setAttribute("aria-label", "Open navigation menu");
+                const icon = menuToggle.querySelector(".mobile-nav-toggle-icon");
+                if (icon) icon.textContent = "☰";
+            }
 
             if (view) {
                 switchView(view);
