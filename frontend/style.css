@@ -3432,3 +3432,83 @@ tbody tr:last-child td {
   .topbar .search-box,
   .topbar .search-box input { transition: none !important; }
 }
+
+
+/* Mobile-only header refinement: desktop styles remain untouched. */
+@media (max-width: 850px) {
+  .sidebar {
+    position: sticky !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    min-height: 68px !important;
+    padding: 10px 16px !important;
+    gap: 10px !important;
+  }
+  .sidebar .brand { flex: 0 0 auto !important; }
+  .sidebar .brand-logo { width: 40px !important; height: 40px !important; }
+  .mobile-nav-toggle { order: 3 !important; flex: 0 0 42px !important; width: 42px !important; height: 42px !important; }
+  .main-content {
+    position: relative !important;
+    padding: 66px 18px 0 !important;
+  }
+  .topbar {
+    position: absolute !important;
+    top: -57px !important;
+    right: 68px !important;
+    left: auto !important;
+    width: auto !important;
+    min-height: 42px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    z-index: 1102 !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
+    pointer-events: none;
+  }
+  .topbar-title { display: none !important; }
+  .topbar-actions {
+    width: auto !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 8px !important;
+    pointer-events: auto;
+  }
+  .topbar .search-box {
+    flex: 0 0 42px !important;
+    width: 42px !important;
+    min-width: 42px !important;
+    height: 42px !important;
+    padding: 0 10px !important;
+    border-radius: 13px !important;
+  }
+  .topbar .search-box:focus-within {
+    position: absolute !important;
+    top: 0 !important;
+    right: 0 !important;
+    width: min(62vw, 230px) !important;
+    flex-basis: min(62vw, 230px) !important;
+    z-index: 4 !important;
+  }
+  .topbar .user-chip {
+    flex: 0 0 42px !important;
+    width: 42px !important;
+    height: 42px !important;
+  }
+  .topbar .notification-button { display: none !important; }
+  .sidebar nav { order: 4 !important; }
+  .sidebar.mobile-nav-open { flex-wrap: wrap !important; }
+  .main-content, .app-page, .content-panel { min-width: 0 !important; }
+  .table-scroll { width: 100%; overflow-x: auto !important; }
+}
+@media (max-width: 520px) {
+  .sidebar { min-height: 64px !important; padding: 8px 13px !important; }
+  .main-content { padding: 62px 14px 0 !important; }
+  .topbar { top: -54px !important; right: 62px !important; }
+  .topbar-actions { gap: 6px !important; }
+  .story-hero { padding-top: 8px !important; }
+}
