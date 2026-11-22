@@ -28,6 +28,8 @@ static const char *history_file_path(void) {
 typedef struct {
     int used;
     WebQuizSession quiz;
+    char completion_answers[WEB_MAX_QUESTIONS + 1];
+    char completion_response[65536];
 } ServerSession;
 
 static ServerSession sessions[MAX_SESSIONS];
