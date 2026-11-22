@@ -3908,3 +3908,62 @@ tbody tr:last-child td {
 @media (min-width: 851px) {
   .sidebar .brand-logo { width: 58px !important; height: 58px !important; }
 }
+
+
+/* Mobile brand identity: show the full site name beside the Q mark.
+   Compact typography keeps the header balanced on narrow Android screens. */
+@media (max-width: 850px) {
+  .sidebar .brand {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 7px !important;
+    min-width: 0 !important;
+    max-width: calc(100% - 148px) !important;
+    overflow: visible !important;
+  }
+  .sidebar .brand-logo {
+    width: 49px !important;
+    height: 49px !important;
+    flex: 0 0 49px !important;
+  }
+  .sidebar .brand-copy {
+    display: flex !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+  }
+  .sidebar .brand-copy strong {
+    display: block !important;
+    white-space: nowrap !important;
+    font-family: 'Manrope', sans-serif !important;
+    font-size: clamp(9px, 2.8vw, 12px) !important;
+    line-height: 1.18 !important;
+    letter-spacing: -.35px !important;
+    font-weight: 800 !important;
+  }
+  .sidebar .brand-ai,
+  .sidebar .brand-game { display: inline !important; }
+  .student-photo-grid > .student-photo-large,
+  .student-photo-grid > .student-photo-large img {
+    min-height: 360px !important;
+  }
+}
+@media (max-width: 520px) {
+  .sidebar .brand {
+    max-width: calc(100% - 140px) !important;
+    gap: 6px !important;
+  }
+  .sidebar .brand-logo {
+    width: 47px !important;
+    height: 47px !important;
+    flex-basis: 47px !important;
+  }
+  .sidebar .brand-copy strong {
+    font-size: clamp(9px, 2.75vw, 11px) !important;
+    letter-spacing: -.4px !important;
+  }
+  .student-photo-grid > .student-photo-large,
+  .student-photo-grid > .student-photo-large img {
+    min-height: 330px !important;
+  }
+}
