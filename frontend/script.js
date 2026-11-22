@@ -1144,7 +1144,8 @@ function showQuizResults(data) {
     if (data.history_saved) {
         showToast("Quiz completed. Your result has been saved.");
     } else {
-        showToast("Quiz completed!");
+        showToast("Quiz completed, but the result was NOT saved. Rankings and analytics will not update.");
+        console.error("Quiz result was not saved; check QUIZ_HISTORY_FILE and Render persistent disk.");
     }
 }
 
