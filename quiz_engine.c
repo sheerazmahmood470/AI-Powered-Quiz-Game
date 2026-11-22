@@ -12,6 +12,7 @@
 #include <cjson/cJSON.h>
 
 #include "quiz_engine.h"
+#include "storage.h"
 
 #define MAX_BANK 2000
 #define MAX_HISTORY 5000
@@ -361,45 +362,25 @@ static void shuffle_questions(Question *questions, int count) {
 static int load_history(
     HistoryRecord records[MAX_HISTORY]
 ) {
-    FILE *file = fopen(history_file_path(), "r");
-
-    /* Migrate existing bundled history on the first persistent-disk boot. */
-    if (!file && strcmp(history_file_path(), "history.json") != 0) {
-        file = fopen("history.json", "r");
-    }
-
-    if (!file) return 0;
-
-    if (fseek(file, 0, SEEK_END) != 0) {
+    char *data = NULL;
+    if (storage_is_configured()) {
+        data = storage_read_json("history");
+        if (!data) return -1;
+    } else {
+        FILE *file = fopen(history_file_path(), "r");
+        if (!file) return 0;
+        if (fseek(file, 0, SEEK_END) != 0) { fclose(file); return 0; }
+        long length = ftell(file);
+        if (length <= 0 || length > 10000000 || fseek(file, 0, SEEK_SET) != 0) {
+            fclose(file); return 0;
+        }
+        data = malloc((size_t)length + 1);
+        if (!data) { fclose(file); return 0; }
+        size_t got = fread(data, 1, (size_t)length, file);
+        data[got] = '\0';
         fclose(file);
-        return 0;
+        if (got != (size_t)length) { free(data); return 0; }
     }
-
-    long length = ftell(file);
-
-    if (length <= 0 || length > 10000000 ||
-        fseek(file, 0, SEEK_SET) != 0) {
-        fclose(file);
-        return 0;
-    }
-
-    char *data = malloc((size_t)length + 1);
-
-    if (!data) {
-        fclose(file);
-        return 0;
-    }
-
-    size_t got = fread(data, 1, (size_t)length, file);
-    data[got] = '\0';
-
-    fclose(file);
-
-    if (got != (size_t)length) {
-        free(data);
-        return 0;
-    }
-
     cJSON *root = cJSON_Parse(data);
     free(data);
 
@@ -490,6 +471,12 @@ static int save_history(
     cJSON_Delete(root);
 
     if (!data) return 0;
+
+    if (storage_is_configured()) {
+        int ok = storage_write_json("history", data);
+        free(data);
+        return ok;
+    }
 
     char temp_path[1200];
     int path_length = snprintf(temp_path, sizeof(temp_path), "%s.tmp",
