@@ -104,6 +104,9 @@ static enum MHD_Result send_json(
         "Content-Type",
         "application/json; charset=utf-8"
     );
+    MHD_add_response_header(response, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    MHD_add_response_header(response, "Pragma", "no-cache");
+    MHD_add_response_header(response, "Expires", "0");
 
     add_cors_headers(response);
 
@@ -134,11 +137,66 @@ static enum MHD_Result send_error(
 
 /* ================= READ HISTORY ================= */
 
+static int migrate_bundled_history(void) {
+    const char *configured = getenv("QUIZ_HISTORY_FILE");
+    if (!configured || !configured[0] || strcmp(configured, "history.json") == 0) {
+        return 0;
+    }
+
+    FILE *existing = fopen(configured, "rb");
+    if (existing) {
+        fclose(existing);
+        return 1;
+    }
+
+    FILE *source = fopen("history.json", "rb");
+    if (!source) return 0;
+
+    char temp_path[1200];
+    int path_length = snprintf(temp_path, sizeof(temp_path), "%s.migrate.tmp", configured);
+    if (path_length < 0 || (size_t)path_length >= sizeof(temp_path)) {
+        fclose(source);
+        return 0;
+    }
+
+    FILE *target = fopen(temp_path, "wb");
+    if (!target) {
+        fclose(source);
+        return 0;
+    }
+
+    char buffer[8192];
+    size_t bytes;
+    int ok = 1;
+    while ((bytes = fread(buffer, 1, sizeof(buffer), source)) > 0) {
+        if (fwrite(buffer, 1, bytes, target) != bytes) {
+            ok = 0;
+            break;
+        }
+    }
+    if (ferror(source)) ok = 0;
+    if (fclose(source) != 0) ok = 0;
+    if (fflush(target) != 0) ok = 0;
+    if (fclose(target) != 0) ok = 0;
+
+    if (!ok || rename(temp_path, configured) != 0) {
+        remove(temp_path);
+        return 0;
+    }
+    return 1;
+}
+
 static char *read_history_file(void) {
     FILE *file = fopen(history_file_path(), "rb");
 
-    /* Keep compatibility with the bundled history file on first boot. */
-    if (!file && strcmp(history_file_path(), "history.json") != 0) {
+    /* Migrate the bundled seed exactly once into the configured persistent disk. */
+    if (!file && migrate_bundled_history()) {
+        file = fopen(history_file_path(), "rb");
+    }
+
+    /* Without an explicitly configured disk, use the bundled local history. */
+    const char *configured = getenv("QUIZ_HISTORY_FILE");
+    if (!file && (!configured || !configured[0])) {
         file = fopen("history.json", "rb");
     }
 
@@ -734,22 +792,34 @@ static enum MHD_Result handle_health_check(
     struct MHD_Connection *connection
 ) {
     cJSON *json = cJSON_CreateObject();
-
     if (!json) return MHD_NO;
 
+    const char *configured_history = getenv("QUIZ_HISTORY_FILE");
+    int storage_configured = configured_history && configured_history[0];
+
+    /* Reading first also performs the one-time seed migration when needed. */
+    char *history_data = read_history_file();
+    FILE *history_file = fopen(history_file_path(), "rb");
+    int storage_ready = history_file != NULL;
+    if (history_file) fclose(history_file);
+
+    cJSON *history_json = history_data ? cJSON_Parse(history_data) : NULL;
+    int history_readable = cJSON_IsArray(history_json);
+    int history_records = history_readable ? cJSON_GetArraySize(history_json) : 0;
+    free(history_data);
+    cJSON_Delete(history_json);
+
     cJSON_AddStringToObject(json, "status", "online");
+    cJSON_AddStringToObject(json, "message", "C backend connected");
+    cJSON_AddBoolToObject(json, "history_storage_configured", storage_configured);
+    cJSON_AddBoolToObject(json, "history_storage_ready", storage_ready);
+    cJSON_AddBoolToObject(json, "history_readable", history_readable);
+    cJSON_AddNumberToObject(json, "history_records", history_records);
+    cJSON_AddStringToObject(json, "history_storage",
+        storage_ready && storage_configured ? "persistent-path-ready" :
+        (storage_configured ? "persistent-path-not-ready" : "ephemeral-default"));
 
-    cJSON_AddStringToObject(
-        json,
-        "message",
-        "C backend connected"
-    );
-
-    return send_json(
-        connection,
-        MHD_HTTP_OK,
-        json
-    );
+    return send_json(connection, MHD_HTTP_OK, json);
 }
 
 /* ================= REQUEST COMPLETED ================= */
@@ -911,7 +981,6 @@ static enum MHD_Result answer_to_connection(
         "Method not allowed"
     );
 }
-
 /* ================= MAIN ================= */
 
 int main(void) {
