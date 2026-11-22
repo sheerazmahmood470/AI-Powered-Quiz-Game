@@ -41,6 +41,7 @@
       <a href="#">Leaderboard</a>
       <a href="#">Quiz History</a>
       <a href="#">Analytics</a>
+      <a href="#">Reviews</a>
     </nav>
 
     <div class="sidebar-spacer"></div>
@@ -768,6 +769,40 @@
             </tbody>
           </table>
         </div>
+      </section>
+    </section>
+
+
+    <section class="app-page" id="reviews-page">
+      <div class="page-intro reviews-page-intro">
+        <div><span class="story-eyebrow">REAL LEARNER FEEDBACK</span><h2>Reviews.</h2><p>Honest experiences from people who have used the learning space.</p></div>
+        <button class="story-primary" type="button" id="write-review-top">Write a review <span>↗</span></button>
+      </div>
+      <section class="reviews-summary content-panel">
+        <div class="reviews-score-block"><strong id="reviews-average">0.0</strong><div class="reviews-stars" id="reviews-summary-stars">☆☆☆☆☆</div><span id="reviews-total-label">No reviews yet</span></div>
+        <div class="reviews-distribution" id="reviews-distribution"><p>Ratings will appear here when visitors share feedback.</p></div>
+      </section>
+      <section class="reviews-layout">
+        <div class="content-panel reviews-list-panel">
+          <div class="panel-heading"><div><span class="story-eyebrow">COMMUNITY VOICES</span><h3>What learners say</h3></div><span class="reviews-count-pill" id="reviews-count-pill">0 reviews</span></div>
+          <div id="reviews-list" class="reviews-list" aria-live="polite"><p class="empty-state">Be the first to share your experience.</p></div>
+        </div>
+        <form class="content-panel review-form" id="review-form">
+          <span class="story-eyebrow">YOUR EXPERIENCE MATTERS</span><h3>Share your review.</h3>
+          <p class="review-form-note">Your feedback is public and helps other learners make an informed choice.</p>
+          <label class="field-label" for="review-name">Your name</label><input id="review-name" type="text" maxlength="60" placeholder="How should we display your name?" required>
+          <label class="field-label">Your rating</label>
+          <div class="review-rating-picker" id="review-rating-picker" role="radiogroup" aria-label="Choose a star rating">
+            <button type="button" data-rating="1" role="radio" aria-checked="false" aria-label="1 star">★</button><button type="button" data-rating="2" role="radio" aria-checked="false" aria-label="2 stars">★</button><button type="button" data-rating="3" role="radio" aria-checked="false" aria-label="3 stars">★</button><button type="button" data-rating="4" role="radio" aria-checked="false" aria-label="4 stars">★</button><button type="button" data-rating="5" role="radio" aria-checked="false" aria-label="5 stars">★</button><span id="review-rating-label">Select a rating</span>
+          </div>
+          <label class="field-label" for="review-title">Review headline</label><input id="review-title" type="text" maxlength="100" placeholder="Sum up your experience" required>
+          <label class="field-label" for="review-message">Your review</label><textarea id="review-message" rows="5" maxlength="1500" placeholder="What did you like? What could be better?" required></textarea>
+          <div class="review-character-count"><span id="review-message-count">0</span>/1500</div>
+          <label class="field-label" for="review-suggestion">Suggestion (optional)</label><textarea id="review-suggestion" rows="3" maxlength="1000" placeholder="Any feature or improvement you'd love to see?"></textarea>
+          <button class="story-primary review-submit" type="submit" id="review-submit-btn">Publish review <span>↗</span></button>
+          <p class="review-form-status" id="review-form-status" role="status" aria-live="polite"></p>
+          <small class="review-disclosure">Reviews are stored by the website and shown publicly. Please don't include private or sensitive information.</small>
+        </form>
       </section>
     </section>
 
