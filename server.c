@@ -1027,7 +1027,7 @@ static enum MHD_Result answer_to_connection(
 /* ================= MAIN ================= */
 
 int main(void) {
-    if (storage_is_configured() && !storage_init()) {
+    if (!storage_init()) {
         fprintf(stderr, "[STORAGE] Startup aborted: Neon PostgreSQL is unavailable; temporary storage fallback is disabled.\n");
         return 1;
     }
