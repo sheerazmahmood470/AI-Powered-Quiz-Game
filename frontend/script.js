@@ -167,7 +167,7 @@ async function checkBackendConnection() {
                 : storage === "database-unavailable"
                     ? "Database unavailable · History is protected"
                     : storage === "local-development"
-                        ? "Backend Connected"
+                        ? "Database not configured"
                         : "Checking secure storage...";
         }
         if (data.database_configured && !data.database_ready) {
