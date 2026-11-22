@@ -3815,31 +3815,26 @@ tbody tr:last-child td {
 }
 
 
-/* Clear answer feedback: correct answers are green, incorrect selections are red. */
+/* Answer feedback colors the complete option card, not its A/B/C/D badge. */
 .quiz-options button.quiz-option.correct {
   border-color: #16834a !important;
   background: #e8f7ee !important;
-  color: #145c35 !important;
+  color: var(--ink, #171a17) !important;
   box-shadow: inset 0 0 0 1px rgba(22, 131, 74, .18);
 }
 
 .quiz-options button.quiz-option.incorrect {
   border-color: #d93636 !important;
   background: #fff0f0 !important;
-  color: #a51f1f !important;
+  color: var(--ink, #171a17) !important;
   box-shadow: inset 0 0 0 1px rgba(217, 54, 54, .16);
 }
 
-.quiz-options button.quiz-option.correct .option-letter {
-  border-color: #16834a !important;
-  background: #16834a !important;
-  color: #fff !important;
-}
-
+.quiz-options button.quiz-option.correct .option-letter,
 .quiz-options button.quiz-option.incorrect .option-letter {
-  border-color: #d93636 !important;
-  background: #d93636 !important;
-  color: #fff !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  color: inherit !important;
 }
 
 .quiz-options button.quiz-option:disabled {

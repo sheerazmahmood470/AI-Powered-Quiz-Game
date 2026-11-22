@@ -193,7 +193,9 @@ static int build_prompt(
         "Avoid repeating or closely imitating the reference questions. "
         "Use clear, factually correct questions and explanations. "
         "Every question must have exactly four distinct answer options. "
-        "The correct_option must identify the genuinely correct answer.\n"
+        "The correct_option must identify the genuinely correct answer. "
+        "Keep each explanation to one concise sentence (maximum 20 words) "
+        "to reduce generation time while preserving accuracy.\n"
         "Reference questions:\n",
         task->count,
         task->topic
