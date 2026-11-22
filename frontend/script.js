@@ -153,7 +153,7 @@ async function checkBackendConnection() {
         $("#backend-status-text");
 
     try {
-        await apiRequest("/");
+        const data = await apiRequest("/");
 
         if (dot) {
             dot.classList.add("connected");
