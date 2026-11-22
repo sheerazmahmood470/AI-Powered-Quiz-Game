@@ -432,7 +432,7 @@ static int generate_fresh_batch(
             task.excluded[i] = previous[source];
         }
 
-        printf("[AI] Generating fresh batch %d/3: %d %s questions.\\n",
+        printf("[AI] Generating fresh batch %d/3: %d %s questions.\n",
                attempt, question_count, field_names[topic_index]);
         generate_questions(&task);
         if (!task.success || task.generated_count != question_count) continue;
@@ -446,7 +446,7 @@ static int generate_fresh_batch(
             destination[accepted++] = task.generated[i];
         }
         if (accepted == question_count) return 1;
-        fprintf(stderr, "[AI] Rejected batch: it repeated a question from the previous quiz.\\n");
+        fprintf(stderr, "[AI] Rejected batch: it repeated a question from the previous quiz.\n");
     }
     return 0;
 }
@@ -670,7 +670,7 @@ int quiz_engine_start(
             topic_index, question_count,
             previous_count ? previous_batch : NULL,
             previous_count, fresh_batch)) {
-        fprintf(stderr, "[AI] Quiz cancelled: could not generate a complete fresh, non-repeating batch.\\n");
+        fprintf(stderr, "[AI] Quiz cancelled: could not generate a complete fresh, non-repeating batch.\n");
         goto cleanup;
     }
 
@@ -680,10 +680,10 @@ int quiz_engine_start(
     process_question_cache_ready[topic_index] = 1;
 
     if (save_ai_question_cache(topic_index, question_count, fresh_batch)) {
-        printf("[CACHE] Saved latest %d-question %s batch for cross-length no-repeat protection.\\n",
+        printf("[CACHE] Saved latest %d-question %s batch for cross-length no-repeat protection.\n",
                question_count, field_names[topic_index]);
     } else {
-        fprintf(stderr, "[CACHE] Persistent no-repeat reference could not be updated; current batch remains available in memory.\\n");
+        fprintf(stderr, "[CACHE] Persistent no-repeat reference could not be updated; current batch remains available in memory.\n");
     }
 
     for (int i = 0; i < question_count; i++) {
