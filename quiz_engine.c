@@ -676,14 +676,27 @@ int quiz_engine_start(
         goto cleanup;
     }
 
-    memcpy(process_question_cache[topic_index], fresh_batch,
+    /* Append this completed batch to the per-topic rolling history.
+       Keep the newest 300 questions; remove only the oldest when full. */
+    int retained_count = previous_count;
+    if (retained_count + question_count > MAX_AI_QUESTION_HISTORY) {
+        int drop_count = retained_count + question_count - MAX_AI_QUESTION_HISTORY;
+        memmove(previous_batch, previous_batch + drop_count,
+                (size_t)(retained_count - drop_count) * sizeof(Question));
+        retained_count -= drop_count;
+    }
+    memcpy(previous_batch + retained_count, fresh_batch,
            (size_t)question_count * sizeof(Question));
-    process_question_cache_count[topic_index] = question_count;
+    retained_count += question_count;
+
+    memcpy(process_question_cache[topic_index], previous_batch,
+           (size_t)retained_count * sizeof(Question));
+    process_question_cache_count[topic_index] = retained_count;
     process_question_cache_ready[topic_index] = 1;
 
-    if (save_ai_question_cache(topic_index, question_count, fresh_batch)) {
-        printf("[CACHE] Saved latest %d-question %s batch for cross-length no-repeat protection.\n",
-               question_count, field_names[topic_index]);
+    if (save_ai_question_cache(topic_index, retained_count, previous_batch)) {
+        printf("[CACHE] Saved rolling history (%d questions) for %s; current %d-question quiz batch is ready.\n",
+               retained_count, field_names[topic_index], question_count);
     } else {
         fprintf(stderr, "[CACHE] Persistent no-repeat reference could not be updated; current batch remains available in memory.\n");
     }
