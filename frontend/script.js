@@ -1407,7 +1407,7 @@ function renderAnalyticsChart(records) {
                 x: {
                     grid: { display: false, drawBorder: false },
                     border: { display: false },
-                    ticks: { maxTicksLimit: 6, maxRotation: 0, color: "#89958e", font: { size: 10 } }
+                    ticks: { display: false }
                 },
                 y: {
                     min: 0, max: 100,
