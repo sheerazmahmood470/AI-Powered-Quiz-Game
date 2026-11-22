@@ -3673,3 +3673,143 @@ tbody tr:last-child td {
   stroke-linejoin: round;
 }
 .mobile-student-icon { display: none; }
+
+
+/* Compact icon-only account/search controls; keep desktop layout intact. */
+.topbar {
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+}
+.topbar .notification-button { display: none !important; }
+
+.topbar .user-chip {
+  flex: 0 0 42px !important;
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 42px !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.topbar .user-chip > div:nth-child(2),
+.topbar .user-chip .chevron,
+.topbar .user-avatar-letter { display: none !important; }
+.topbar .user-chip .user-avatar {
+  display: grid !important;
+  place-items: center !important;
+  width: 40px !important;
+  height: 40px !important;
+  margin: 0 !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+  color: var(--green-dark) !important;
+}
+.topbar .mobile-student-icon {
+  display: block !important;
+  width: 25px;
+  height: 25px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (min-width: 851px) {
+  .topbar .search-box {
+    display: flex !important;
+    position: relative !important;
+    flex: 0 0 42px !important;
+    width: 42px !important;
+    min-width: 42px !important;
+    height: 42px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    border-radius: 50% !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    transition: width .22s ease, flex-basis .22s ease, background .22s ease;
+  }
+  .topbar .search-box:focus-within {
+    flex-basis: 230px !important;
+    width: 230px !important;
+    justify-content: flex-start !important;
+    padding: 0 12px !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 14px !important;
+    background: #fff !important;
+  }
+  .topbar .search-box > span { display: none !important; }
+  .topbar .search-box .mobile-search-icon {
+    display: block !important;
+    flex: 0 0 21px !important;
+    width: 21px !important;
+    height: 21px !important;
+    stroke: var(--green-dark);
+  }
+  .topbar .search-box input {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    padding: 0 !important;
+    border: 0 !important;
+    opacity: 0 !important;
+    background: transparent !important;
+    cursor: pointer;
+  }
+  .topbar .search-box:focus-within input {
+    position: static !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 0 4px 0 10px !important;
+    opacity: 1 !important;
+    cursor: text;
+  }
+  .topbar .search-box kbd { display: none !important; }
+}
+
+@media (max-width: 850px) {
+  /* Bring the first homepage line closer to the mobile header. */
+  .main-content { padding-top: 8px !important; }
+  .story-hero { padding-top: 0 !important; }
+  .sidebar .brand-logo {
+    width: 49px !important;
+    height: 49px !important;
+    flex: 0 0 49px !important;
+  }
+  .topbar .mobile-student-icon {
+    width: 23px !important;
+    height: 23px !important;
+  }
+  .student-photo-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .student-photo-grid > .student-photo,
+  .student-photo-grid > .student-photo.reveal-section {
+    grid-column: 1 / -1 !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
+  .student-photo-grid > .student-photo img {
+    display: block !important;
+    width: 100% !important;
+    min-height: 270px !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    object-fit: cover !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .main-content { padding-top: 8px !important; }
+}
