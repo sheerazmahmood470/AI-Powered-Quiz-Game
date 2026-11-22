@@ -72,7 +72,10 @@ int storage_init(void) {
         "meta_key TEXT PRIMARY KEY,meta_value TEXT NOT NULL);"
         "CREATE TABLE IF NOT EXISTS quiz_history("
         "id BIGSERIAL PRIMARY KEY,record JSONB NOT NULL,created_at BIGINT NOT NULL);"
-        "CREATE INDEX IF NOT EXISTS quiz_history_fifo_idx ON quiz_history(created_at,id)");
+        "CREATE INDEX IF NOT EXISTS quiz_history_fifo_idx ON quiz_history(created_at,id);"
+        "CREATE TABLE IF NOT EXISTS quiz_reviews("
+        "id BIGSERIAL PRIMARY KEY,review JSONB NOT NULL,created_at BIGINT NOT NULL);"
+        "CREATE INDEX IF NOT EXISTS quiz_reviews_fifo_idx ON quiz_reviews(created_at,id)");
     int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
     if (r) PQclear(r);
 
@@ -110,6 +113,42 @@ int storage_init(void) {
                 PGresult *done = PQexec(db,
                     "INSERT INTO quiz_game_meta(meta_key,meta_value) "
                     "VALUES('history_rows_migrated','yes') ON CONFLICT(meta_key) DO NOTHING");
+                ok = done && PQresultStatus(done) == PGRES_COMMAND_OK;
+                if (done) PQclear(done);
+            }
+        }
+    }
+
+    /* One-time migration from the legacy reviews JSONB blob to independent rows. */
+    if (ok) {
+        PGresult *marker = PQexec(db,
+            "SELECT 1 FROM quiz_game_meta WHERE meta_key='reviews_rows_migrated'");
+        int migrated = marker && PQresultStatus(marker) == PGRES_TUPLES_OK &&
+                       PQntuples(marker) > 0;
+        if (marker) PQclear(marker);
+        if (!migrated) {
+            PGresult *legacy = PQexec(db,
+                "SELECT payload::text FROM quiz_game_store WHERE data_key='reviews'");
+            if (!legacy || PQresultStatus(legacy) != PGRES_TUPLES_OK) {
+                ok = 0;
+            } else {
+                if (PQntuples(legacy) == 1) {
+                    const char *values[1] = { PQgetvalue(legacy, 0, 0) };
+                    PGresult *inserted = PQexecParams(db,
+                        "INSERT INTO quiz_reviews(review,created_at) "
+                        "SELECT item.review,COALESCE(NULLIF(item.review->>'timestamp','')::bigint,extract(epoch from now())::bigint) "
+                        "FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS item(review,ordinality) "
+                        "ORDER BY item.ordinality",
+                        1, NULL, values, NULL, NULL, 0);
+                    ok = inserted && PQresultStatus(inserted) == PGRES_COMMAND_OK;
+                    if (inserted) PQclear(inserted);
+                }
+                PQclear(legacy);
+            }
+            if (ok) {
+                PGresult *done = PQexec(db,
+                    "INSERT INTO quiz_game_meta(meta_key,meta_value) "
+                    "VALUES('reviews_rows_migrated','yes') ON CONFLICT(meta_key) DO NOTHING");
                 ok = done && PQresultStatus(done) == PGRES_COMMAND_OK;
                 if (done) PQclear(done);
             }
@@ -228,6 +267,77 @@ int storage_append_history_json(const char *json) {
     }
 
     if (!ok) fprintf(stderr, "[STORAGE] Neon quiz append/FIFO retention failed.\n");
+    PQfinish(db);
+    return ok;
+}
+
+/* Reviews use their own PostgreSQL table and an independent global FIFO budget. */
+char *storage_read_reviews_json(void) {
+    if (!storage_is_configured()) return NULL;
+    PGconn *db = open_database();
+    if (!db) return NULL;
+    PGresult *r = PQexec(db,
+        "SELECT COALESCE(jsonb_agg(review ORDER BY id),'[]'::jsonb)::text FROM quiz_reviews");
+    char *copy = NULL;
+    if (r && PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1)
+        copy = strdup(PQgetvalue(r, 0, 0));
+    if (r) PQclear(r);
+    PQfinish(db);
+    return copy;
+}
+
+int storage_append_review_json(const char *json) {
+    if (!storage_is_configured() || !json) return 0;
+    PGconn *db = open_database();
+    if (!db) return 0;
+
+    long long limit = 150LL * 1024LL * 1024LL;
+    const char *configured = getenv("QUIZ_REVIEWS_MAX_BYTES");
+    if (configured && configured[0]) {
+        char *end = NULL;
+        long long parsed = strtoll(configured, &end, 10);
+        if (end && *end == '\0' && parsed >= 1024LL * 1024LL) limit = parsed;
+    }
+    char limit_text[32];
+    snprintf(limit_text, sizeof(limit_text), "%lld", limit);
+    const char *values[2] = { json, limit_text };
+
+    PGresult *r = PQexec(db, "BEGIN");
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
+    if (ok) {
+        r = PQexec(db, "SELECT pg_advisory_xact_lock(731942062)");
+        ok = r && PQresultStatus(r) == PGRES_TUPLES_OK;
+        if (r) PQclear(r);
+    }
+    if (ok) {
+        r = PQexecParams(db,
+            "INSERT INTO quiz_reviews(review,created_at) "
+            "VALUES($1::jsonb,COALESCE(NULLIF(($1::jsonb)->>'timestamp','')::bigint,extract(epoch from now())::bigint))",
+            1, NULL, values, NULL, NULL, 0);
+        ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+        if (r) PQclear(r);
+    }
+    if (ok) {
+        r = PQexecParams(db,
+            "WITH ranked AS ("
+            " SELECT id,SUM(pg_column_size(review)::bigint+64) "
+            " OVER (ORDER BY created_at DESC,id DESC) AS retained_bytes FROM quiz_reviews"
+            "), expired AS (SELECT id FROM ranked WHERE retained_bytes>$1::bigint) "
+            "DELETE FROM quiz_reviews h USING expired e WHERE h.id=e.id",
+            1, NULL, &values[1], NULL, NULL, 0);
+        ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+        if (r) PQclear(r);
+    }
+    if (ok) {
+        r = PQexec(db, "COMMIT");
+        ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+        if (r) PQclear(r);
+    } else {
+        r = PQexec(db, "ROLLBACK");
+        if (r) PQclear(r);
+    }
+    if (!ok) fprintf(stderr, "[STORAGE] Neon review append/FIFO retention failed.\n");
     PQfinish(db);
     return ok;
 }
