@@ -363,72 +363,29 @@ static char *create_request_body(const char *prompt) {
     return body;
 }
 
-/* ================= GEMINI RESPONSE PARSING ================= */
+/* ================= PROVIDER RESPONSE PARSING ================= */
 
-static int parse_generated_questions(
+static int parse_questions_text(
     const char *response_text,
     AiTask *task
 ) {
     if (!response_text || !task) return 0;
 
-    cJSON *api_root = cJSON_Parse(response_text);
-
-    if (!api_root) return 0;
-
-    cJSON *candidates =
-        cJSON_GetObjectItemCaseSensitive(api_root, "candidates");
-
-    cJSON *candidate = cJSON_GetArrayItem(candidates, 0);
-
-    cJSON *content = candidate
-        ? cJSON_GetObjectItemCaseSensitive(candidate, "content")
-        : NULL;
-
-    cJSON *parts = content
-        ? cJSON_GetObjectItemCaseSensitive(content, "parts")
-        : NULL;
-
-    cJSON *part = cJSON_GetArrayItem(parts, 0);
-
-    cJSON *text = part
-        ? cJSON_GetObjectItemCaseSensitive(part, "text")
-        : NULL;
-
-    if (!cJSON_IsString(text)) {
-        cJSON_Delete(api_root);
-        return 0;
-    }
-
-    const char *json_start = strchr(text->valuestring, '{');
-    const char *json_end = strrchr(text->valuestring, '}');
-
-    if (!json_start || !json_end || json_end < json_start) {
-        cJSON_Delete(api_root);
-        return 0;
-    }
+    const char *json_start = strchr(response_text, '{');
+    const char *json_end = strrchr(response_text, '}');
+    if (!json_start || !json_end || json_end < json_start) return 0;
 
     size_t json_length = (size_t)(json_end - json_start + 1);
-
     char *json_text = malloc(json_length + 1);
-
-    if (!json_text) {
-        cJSON_Delete(api_root);
-        return 0;
-    }
-
+    if (!json_text) return 0;
     memcpy(json_text, json_start, json_length);
     json_text[json_length] = '\0';
 
     cJSON *quiz = cJSON_Parse(json_text);
-
     free(json_text);
-    cJSON_Delete(api_root);
-
     if (!quiz) return 0;
 
-    cJSON *questions =
-        cJSON_GetObjectItemCaseSensitive(quiz, "questions");
-
+    cJSON *questions = cJSON_GetObjectItemCaseSensitive(quiz, "questions");
     if (!cJSON_IsArray(questions) ||
         cJSON_GetArraySize(questions) != task->count) {
         cJSON_Delete(quiz);
@@ -436,48 +393,187 @@ static int parse_generated_questions(
     }
 
     int accepted = 0;
-    int excluded_count = task->excluded_count;
-
     for (int i = 0; i < task->count; i++) {
         Question candidate_question;
-
-        if (!copy_json_question(
-            cJSON_GetArrayItem(questions, i),
-            &candidate_question
-        )) {
-            continue;
-        }
-
-        if (duplicate_question(
-            &candidate_question,
-            task->excluded,
-            excluded_count
-        )) {
-            continue;
-        }
-
-        if (duplicate_question(
-            &candidate_question,
-            task->generated,
-            accepted
-        )) {
-            continue;
-        }
-
+        if (!copy_json_question(cJSON_GetArrayItem(questions, i), &candidate_question)) continue;
+        if (duplicate_question(&candidate_question, task->excluded, task->excluded_count)) continue;
+        if (duplicate_question(&candidate_question, task->generated, accepted)) continue;
         if (accepted >= MAX_QUESTIONS) break;
-
         task->generated[accepted++] = candidate_question;
     }
 
     if (accepted > 0) {
         task->generated_count = accepted;
         task->success = 1;
+    }
+    cJSON_Delete(quiz);
+    return accepted;
+}
 
+static int parse_provider_response(const char *response_text, int provider, AiTask *task) {
+    if (!response_text || !task) return 0;
+    cJSON *root = cJSON_Parse(response_text);
+    if (!root) return 0;
+    const char *content = NULL;
+    cJSON *node = NULL;
+
+    if (provider == 0) {
+        cJSON *candidates = cJSON_GetObjectItemCaseSensitive(root, "candidates");
+        cJSON *candidate = cJSON_GetArrayItem(candidates, 0);
+        cJSON *body = candidate ? cJSON_GetObjectItemCaseSensitive(candidate, "content") : NULL;
+        cJSON *parts = body ? cJSON_GetObjectItemCaseSensitive(body, "parts") : NULL;
+        cJSON *part = cJSON_GetArrayItem(parts, 0);
+        node = part ? cJSON_GetObjectItemCaseSensitive(part, "text") : NULL;
+    } else if (provider == 2) {
+        cJSON *result = cJSON_GetObjectItemCaseSensitive(root, "result");
+        node = result ? cJSON_GetObjectItemCaseSensitive(result, "response") : NULL;
+    } else {
+        cJSON *choices = cJSON_GetObjectItemCaseSensitive(root, "choices");
+        cJSON *choice = cJSON_GetArrayItem(choices, 0);
+        cJSON *message = choice ? cJSON_GetObjectItemCaseSensitive(choice, "message") : NULL;
+        node = message ? cJSON_GetObjectItemCaseSensitive(message, "content") : NULL;
+    }
+    if (cJSON_IsString(node)) content = node->valuestring;
+    int accepted = content ? parse_questions_text(content, task) : 0;
+    cJSON_Delete(root);
+    return accepted;
+}
+
+static char *create_compatible_request_body(const char *prompt, int provider) {
+    cJSON *request = cJSON_CreateObject();
+    if (!request) return NULL;
+
+    if (provider == 2) {
+        cJSON_AddStringToObject(request, "prompt", prompt);
+        cJSON_AddNumberToObject(request, "max_tokens", 8192);
+        cJSON_AddNumberToObject(request, "temperature", 0.65);
+    } else {
+        cJSON_AddStringToObject(request, "model",
+            provider == 1 ? "llama-3.3-70b-versatile" : "openrouter/free");
+        cJSON *messages = cJSON_AddArrayToObject(request, "messages");
+        cJSON *message = cJSON_CreateObject();
+        if (!messages || !message) {
+            cJSON_Delete(request);
+            cJSON_Delete(message);
+            return NULL;
+        }
+        cJSON_AddStringToObject(message, "role", "user");
+        cJSON_AddStringToObject(message, "content", prompt);
+        cJSON_AddItemToArray(messages, message);
+        cJSON_AddNumberToObject(request, "temperature", 0.65);
+        cJSON_AddNumberToObject(request, "max_tokens", 8192);
+        cJSON *format = cJSON_AddObjectToObject(request, "response_format");
+        if (format) cJSON_AddStringToObject(format, "type", "json_object");
     }
 
-    cJSON_Delete(quiz);
+    char *body = cJSON_PrintUnformatted(request);
+    cJSON_Delete(request);
+    return body;
+}
 
-    return accepted;
+/* provider: 0=Gemini, 1=Groq, 2=Cloudflare Workers AI, 3=OpenRouter */
+static int call_ai_provider(
+    int provider,
+    const char *api_key,
+    const char *account_id,
+    const char *prompt,
+    AiTask *task
+) {
+    if (!api_key || !api_key[0] || !prompt || !task) return 0;
+
+    char url[1024];
+    char auth_header[4096];
+    char key_header[4096];
+    const char *header_value = NULL;
+    char *body = NULL;
+
+    if (provider == 0) {
+        snprintf(url, sizeof(url),
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent");
+        body = create_request_body(prompt);
+        int n = snprintf(key_header, sizeof(key_header), "x-goog-api-key: %s", api_key);
+        if (n < 0 || (size_t)n >= sizeof(key_header)) { free(body); return 0; }
+        header_value = key_header;
+    } else if (provider == 1) {
+        snprintf(url, sizeof(url), "https://api.groq.com/openai/v1/chat/completions");
+        body = create_compatible_request_body(prompt, provider);
+        int n = snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", api_key);
+        if (n < 0 || (size_t)n >= sizeof(auth_header)) { free(body); return 0; }
+        header_value = auth_header;
+    } else if (provider == 2) {
+        if (!account_id || !account_id[0]) return 0;
+        snprintf(url, sizeof(url),
+            "https://api.cloudflare.com/client/v4/accounts/%s/ai/run/@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+            account_id);
+        body = create_compatible_request_body(prompt, provider);
+        int n = snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", api_key);
+        if (n < 0 || (size_t)n >= sizeof(auth_header)) { free(body); return 0; }
+        header_value = auth_header;
+    } else {
+        snprintf(url, sizeof(url), "https://openrouter.ai/api/v1/chat/completions");
+        body = create_compatible_request_body(prompt, provider);
+        int n = snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", api_key);
+        if (n < 0 || (size_t)n >= sizeof(auth_header)) { free(body); return 0; }
+        header_value = auth_header;
+    }
+
+    if (!body) return 0;
+    CURL *curl = curl_easy_init();
+    if (!curl) { free(body); return 0; }
+
+    Buffer response = {NULL, 0};
+    struct curl_slist *headers = NULL;
+    struct curl_slist *next = curl_slist_append(headers, "Content-Type: application/json");
+    if (!next) { curl_easy_cleanup(curl); free(body); return 0; }
+    headers = next;
+    next = curl_slist_append(headers, header_value);
+    if (!next) {
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        free(body);
+        return 0;
+    }
+    headers = next;
+    if (provider == 3) {
+        next = curl_slist_append(headers, "HTTP-Referer: https://ai-powered-quiz-game.onrender.com");
+        if (next) headers = next;
+        next = curl_slist_append(headers, "X-Title: AI Powered Quiz Game");
+        if (next) headers = next;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(body));
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 35L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+
+    CURLcode result = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    int accepted = 0;
+    if (result == CURLE_OK && status == 200 && response.data) {
+        task->success = 0;
+        task->generated_count = 0;
+        memset(task->generated, 0, sizeof(task->generated));
+        accepted = parse_provider_response(response.data, provider, task);
+    } else if (response.data) {
+        fprintf(stderr, "[AI] Provider %d returned HTTP %ld: %.500s\n",
+            provider, status, response.data);
+    } else if (result != CURLE_OK) {
+        fprintf(stderr, "[AI] Provider %d request failed: %s\n",
+            provider, curl_easy_strerror(result));
+    }
+
+    free(response.data);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    free(body);
+    return accepted == task->count && task->generated_count == task->count;
 }
 
 /* ================= GENERATE QUESTIONS ================= */
@@ -497,144 +593,58 @@ void *generate_questions(void *arg) {
         return NULL;
     }
 
-    const char *key_names[] = {
-        "GEMINI_API_KEY",
-        "GEMINI_API_KEY_2",
-        "GEMINI_API_KEY_3",
-        "GEMINI_API_KEY_4",
-        "GEMINI_API_KEY_5"
-    };
-    const int key_slots = (int)(sizeof(key_names) / sizeof(key_names[0]));
-    int configured_keys = 0;
-    for (int i = 0; i < key_slots; i++) {
-        const char *key = getenv(key_names[i]);
-        if (key && key[0]) configured_keys++;
-    }
-    if (!configured_keys) {
-        fprintf(stderr, "[AI] No Gemini API key is configured.\n");
-        return NULL;
-    }
-
     char prompt[MAX_PROMPT_SIZE];
     if (!build_prompt(task, prompt, sizeof(prompt))) {
         fprintf(stderr, "[AI] Prompt creation failed.\n");
         return NULL;
     }
 
-    char *body = create_request_body(prompt);
-    if (!body) {
-        fprintf(stderr, "[AI] Request creation failed.\n");
-        return NULL;
-    }
+    const char *gemini_primary = getenv("GEMINI_API_KEY");
+    const char *groq_key = getenv("GROQ_API_KEY");
+    const char *cloudflare_key = getenv("CLOUDFLARE_API_TOKEN");
+    const char *cloudflare_account = getenv("CLOUDFLARE_ACCOUNT_ID");
+    const char *openrouter_key = getenv("OPENROUTER_API_KEY");
+    const char *gemini_last = getenv("GEMINI_API_KEY_5");
 
-    const char *url =
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent";
+    struct {
+        int provider;
+        const char *name;
+        const char *key;
+    } providers[] = {
+        {0, "Gemini primary", gemini_primary},
+        {1, "Groq", groq_key},
+        {2, "Cloudflare Workers AI", cloudflare_key},
+        {3, "OpenRouter", openrouter_key},
+        {0, "Gemini final fallback", gemini_last}
+    };
 
-    int attempt = 0;
-    for (int i = 0; i < key_slots; i++) {
-        const char *api_key = getenv(key_names[i]);
-        if (!api_key || !api_key[0]) continue;
-
-        attempt++;
-        fprintf(stderr, "[AI] Trying configured Gemini key %d/%d.\n",
-                attempt, configured_keys);
-
-        CURL *curl = curl_easy_init();
-        if (!curl) {
-            fprintf(stderr, "[AI] cURL initialization failed for key slot %d.\n", i + 1);
+    for (size_t i = 0; i < sizeof(providers) / sizeof(providers[0]); i++) {
+        if (!providers[i].key || !providers[i].key[0]) {
+            fprintf(stderr, "[AI] %s is not configured; skipping.\n", providers[i].name);
+            continue;
+        }
+        if (providers[i].provider == 2 && (!cloudflare_account || !cloudflare_account[0])) {
+            fprintf(stderr, "[AI] Cloudflare Account ID is missing; skipping provider.\n");
             continue;
         }
 
-        Buffer response = {NULL, 0};
-        struct curl_slist *headers = NULL;
-        char key_header[2048];
-
-        int n = snprintf(key_header, sizeof(key_header),
-                         "x-goog-api-key: %s", api_key);
-        if (n < 0 || (size_t)n >= sizeof(key_header)) {
-            fprintf(stderr, "[AI] API key in slot %d is too long.\n", i + 1);
-            curl_easy_cleanup(curl);
-            continue;
-        }
-
-        struct curl_slist *next = curl_slist_append(
-            headers, "Content-Type: application/json");
-        if (!next) {
-            curl_easy_cleanup(curl);
-            continue;
-        }
-        headers = next;
-
-        next = curl_slist_append(headers, key_header);
-        if (!next) {
-            curl_slist_free_all(headers);
-            curl_easy_cleanup(curl);
-            continue;
-        }
-        headers = next;
-
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_POST, 1L);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(body));
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 35L);
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-
-        CURLcode result = curl_easy_perform(curl);
-        long status = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
-
-        /* Log Google's error response (never the API key) to diagnose rejected requests. */
-        if (status != 200 && response.data) {
-            fprintf(stderr, "[AI] Gemini error response for key slot %d: %.1200s\n",
-                    i + 1, response.data);
-        }
-
-        int accepted = 0;
-        if (result == CURLE_OK && status == 200 && response.data) {
-            task->success = 0;
-            task->generated_count = 0;
-            memset(task->generated, 0, sizeof(task->generated));
-            accepted = parse_generated_questions(response.data, task);
-        }
-
-        if (result == CURLE_OK) {
-            fprintf(stderr, "[AI] Gemini HTTP status for key slot %d: %ld.\n",
-                    i + 1, status);
-        } else {
-            fprintf(stderr, "[AI] Gemini request failed for key slot %d: %s.\n",
-                    i + 1, curl_easy_strerror(result));
-        }
-
-        if (accepted == task->count &&
-            task->generated_count == task->count) {
+        fprintf(stderr, "[AI] Trying %s (%zu/5).\n", providers[i].name, i + 1);
+        if (call_ai_provider(providers[i].provider, providers[i].key,
+                providers[i].provider == 2 ? cloudflare_account : NULL,
+                prompt, task)) {
             task->success = 1;
-            fprintf(stderr, "[AI] Gemini key slot %d succeeded; received %d questions.\n",
-                    i + 1, task->generated_count);
-            free(response.data);
-            curl_slist_free_all(headers);
-            curl_easy_cleanup(curl);
-            free(body);
+            fprintf(stderr, "[AI] %s succeeded with %d questions.\n",
+                providers[i].name, task->generated_count);
             return NULL;
         }
-
-        fprintf(stderr, "[AI] Key slot %d did not return the full valid question set; trying the next key if available.\n",
-                i + 1);
 
         task->success = 0;
         task->generated_count = 0;
         memset(task->generated, 0, sizeof(task->generated));
-
-        free(response.data);
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
+        fprintf(stderr, "[AI] %s failed validation or was unavailable; moving to next provider.\n",
+            providers[i].name);
     }
 
-    fprintf(stderr, "[AI] All configured Gemini API keys failed.\n");
-    free(body);
+    fprintf(stderr, "[AI] All configured AI providers failed.\n");
     return NULL;
 }
