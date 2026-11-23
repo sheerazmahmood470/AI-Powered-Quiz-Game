@@ -444,12 +444,21 @@ static char *create_compatible_request_body(const char *prompt, int provider) {
     if (!request) return NULL;
 
     if (provider == 2) {
-        cJSON_AddStringToObject(request, "prompt", prompt);
+        cJSON *messages = cJSON_AddArrayToObject(request, "messages");
+        cJSON *message = cJSON_CreateObject();
+        if (!messages || !message) {
+            cJSON_Delete(request);
+            cJSON_Delete(message);
+            return NULL;
+        }
+        cJSON_AddStringToObject(message, "role", "user");
+        cJSON_AddStringToObject(message, "content", prompt);
+        cJSON_AddItemToArray(messages, message);
         cJSON_AddNumberToObject(request, "max_tokens", 8192);
         cJSON_AddNumberToObject(request, "temperature", 0.65);
     } else {
         cJSON_AddStringToObject(request, "model",
-            provider == 1 ? "llama-3.3-70b-versatile" : "openrouter/free");
+            provider == 1 ? "openai/gpt-oss-120b" : "openrouter/free");
         cJSON *messages = cJSON_AddArrayToObject(request, "messages");
         cJSON *message = cJSON_CreateObject();
         if (!messages || !message) {
