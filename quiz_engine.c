@@ -165,6 +165,9 @@ static cJSON *question_to_json(const Question *q) {
 }
 
 
+static int question_exists(const Question *question, const Question *bank, int count);
+static void shuffle_questions(Question *questions, int count);
+
 static char *questions_to_json_array(const Question *questions, int count) {
     cJSON *array = cJSON_CreateArray();
     if (!array) return NULL;
