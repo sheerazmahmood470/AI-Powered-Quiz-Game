@@ -199,6 +199,82 @@ static int parse_questions_json(const char *json, Question *destination, int cap
     return count;
 }
 
+
+/* One non-blocking refill worker per topic. It adds a small validated batch
+   while the current quiz is already running; reaching 2,000 is gradual and
+   never makes quiz start wait for the AI providers. */
+#define QUESTION_BANK_TARGET 2000
+static pthread_mutex_t bank_refill_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int bank_refill_active[5];
+
+static void *question_bank_refill_worker(void *argument) {
+    int topic_index = *(int *)argument;
+    free(argument);
+
+    AiTask task;
+    memset(&task, 0, sizeof(task));
+    snprintf(task.topic, sizeof(task.topic), "%s", field_names[topic_index]);
+    task.count = MAX_QUESTIONS;
+
+    int before = storage_question_bank_count(field_names[topic_index], 0);
+    if (before >= 0 && before < QUESTION_BANK_TARGET) {
+        fprintf(stderr, "[QUESTION BANK] Background refill started for %s (%d/%d).\n",
+                field_names[topic_index], before, QUESTION_BANK_TARGET);
+        generate_questions(&task);
+        if (task.success && task.generated_count > 0) {
+            char *json = questions_to_json_array(task.generated, task.generated_count);
+            if (json) {
+                int saved = storage_add_questions_json(field_names[topic_index], json);
+                free(json);
+                int after = storage_question_bank_count(field_names[topic_index], 0);
+                fprintf(stderr, "[QUESTION BANK] Background refill %s; %s now has %d/%d unique questions.\n",
+                        saved ? "saved" : "could not save", field_names[topic_index],
+                        after, QUESTION_BANK_TARGET);
+            }
+        } else {
+            fprintf(stderr, "[QUESTION BANK] Background refill providers returned no valid questions for %s. Existing bank remains available.\n",
+                    field_names[topic_index]);
+        }
+    }
+
+    pthread_mutex_lock(&bank_refill_mutex);
+    bank_refill_active[topic_index] = 0;
+    pthread_mutex_unlock(&bank_refill_mutex);
+    return NULL;
+}
+
+static void schedule_question_bank_refill(int topic_index) {
+    if (!storage_is_configured() || topic_index < 0 || topic_index >= 5) return;
+    int count = storage_question_bank_count(field_names[topic_index], 0);
+    if (count < 0 || count >= QUESTION_BANK_TARGET) return;
+
+    pthread_mutex_lock(&bank_refill_mutex);
+    if (bank_refill_active[topic_index]) {
+        pthread_mutex_unlock(&bank_refill_mutex);
+        return;
+    }
+    bank_refill_active[topic_index] = 1;
+    pthread_mutex_unlock(&bank_refill_mutex);
+
+    int *argument = malloc(sizeof(*argument));
+    if (!argument) {
+        pthread_mutex_lock(&bank_refill_mutex);
+        bank_refill_active[topic_index] = 0;
+        pthread_mutex_unlock(&bank_refill_mutex);
+        return;
+    }
+    *argument = topic_index;
+    pthread_t worker;
+    if (pthread_create(&worker, NULL, question_bank_refill_worker, argument) == 0) {
+        pthread_detach(worker);
+    } else {
+        free(argument);
+        pthread_mutex_lock(&bank_refill_mutex);
+        bank_refill_active[topic_index] = 0;
+        pthread_mutex_unlock(&bank_refill_mutex);
+    }
+}
+
 /* ================= LOAD QUESTION BANK ================= */
 
 static int load_bank(
@@ -801,6 +877,7 @@ int quiz_engine_start(
             goto cleanup;
         }
         shuffle_questions(fresh_batch, question_count);
+        schedule_question_bank_refill(topic_index);
     } else {
             Question previous_batch[MAX_AI_QUESTION_HISTORY];
             Question fresh_batch[WEB_MAX_QUESTIONS];
