@@ -203,7 +203,6 @@ static int parse_questions_json(const char *json, Question *destination, int cap
 /* One non-blocking refill worker per topic. It adds a small validated batch
    while the current quiz is already running; reaching 2,000 is gradual and
    never makes quiz start wait for the AI providers. */
-#define QUESTION_BANK_TARGET 2000
 static pthread_mutex_t bank_refill_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int bank_refill_active[5];
 
@@ -897,44 +896,8 @@ int quiz_engine_start(
             }
         }
 
-        /* If the unused pool is exhausted, start the next round immediately.
-           Never wait for AI merely because this topic's current round ended. */
-        if (selected_count < question_count &&
-            storage_question_bank_count(field_names[topic_index], 1) == 0 &&
-            storage_reset_question_usage(field_names[topic_index])) {
-            char *selected_json = questions_to_json_array(fresh_batch, selected_count);
-            if (selected_json) {
-                storage_mark_questions_used_json(field_names[topic_index], selected_json);
-                free(selected_json);
-            }
-            char *more = storage_take_questions_json(
-                field_names[topic_index], question_count - selected_count);
-            if (more) {
-                selected_count += parse_questions_json(
-                    more, fresh_batch + selected_count, question_count - selected_count);
-                free(more);
-            }
-        }
-
-        /* API work is exclusively background: never block quiz start on AI. */
-        if (selected_count < question_count &&
-            storage_question_bank_count(field_names[topic_index], 1) == 0 &&
-            storage_reset_question_usage(field_names[topic_index])) {
-            clear_direct_questions(topic_index);
-            char *selected_json = questions_to_json_array(fresh_batch, selected_count);
-            if (selected_json) {
-                storage_mark_questions_used_json(field_names[topic_index], selected_json);
-                free(selected_json);
-            }
-            char *more = storage_take_questions_json(
-                field_names[topic_index], question_count - selected_count);
-            if (more) {
-                selected_count += parse_questions_json(
-                    more, fresh_batch + selected_count, question_count - selected_count);
-                free(more);
-            }
-        }
-
+        /* Used questions stay retired. Never reset them into the available
+           pool; wait for fresh background-generated questions instead. */
         if (selected_count != question_count) {
             fprintf(stderr, "[QUESTION BANK] Background refill is not ready; only %d/%d unique questions are available.\\n",
                     selected_count, question_count);
