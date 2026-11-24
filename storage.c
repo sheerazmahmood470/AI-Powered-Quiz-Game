@@ -423,6 +423,28 @@ int storage_add_questions_json(const char *topic, const char *questions_json) {
     return ok;
 }
 
+/* Insert background-generated questions into the normal Neon pool and
+   return the exact number of newly inserted rows (duplicates are not counted). */
+int storage_add_questions_count_json(const char *topic, const char *questions_json) {
+    if (!storage_is_configured() || !topic || !questions_json) return 0;
+    PGconn *db = open_database();
+    if (!db) return 0;
+    const char *values[2] = { topic, questions_json };
+    PGresult *r = PQexecParams(db,
+        "INSERT INTO quiz_question_bank(topic,question_hash,question) "
+        "SELECT $1,md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g'))),item "
+        "FROM jsonb_array_elements($2::jsonb) AS item "
+        "WHERE jsonb_typeof(item)='object' AND length(trim(COALESCE(item->>'question','')))>0 "
+        "ON CONFLICT(topic,question_hash) DO NOTHING",
+        2, NULL, values, NULL, NULL, 0);
+    int inserted = 0;
+    if (r && PQresultStatus(r) == PGRES_COMMAND_OK)
+        inserted = atoi(PQcmdTuples(r));
+    if (r) PQclear(r);
+    PQfinish(db);
+    return inserted;
+}
+
 /* Store API questions reserved for direct delivery to a future quiz. */
 int storage_add_direct_questions_json(const char *topic, const char *questions_json) {
     if (!storage_is_configured() || !topic || !questions_json) return 0;
@@ -499,7 +521,7 @@ char *storage_take_questions_json(const char *topic, int limit) {
     if (ok) {
         r = PQexecParams(db,
             "WITH picked AS ("
-            " SELECT id FROM quiz_question_bank WHERE topic=$1 AND used_at IS NULL AND direct_ready=FALSE "
+            " SELECT id FROM quiz_question_bank WHERE topic=$1 AND used_at IS NULL "
             " ORDER BY random() LIMIT $2::int FOR UPDATE SKIP LOCKED"
             "), claimed AS ("
             " UPDATE quiz_question_bank q SET used_at=NOW() FROM picked p "
