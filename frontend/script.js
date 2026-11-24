@@ -1749,6 +1749,51 @@ function renderPublicReviews(records) {
     }).join("");
 }
 
+
+function renderSampleReviewPreviews() {
+    const list = $("#reviews-list");
+    if (!list || $("#sample-review-previews")) return;
+
+    const samples = [
+        { name: "Demo learner 01", rating: 5, title: "A thoughtful and engaging learning experience", message: "The platform brings a clear structure to quiz practice. I especially like how the experience encourages learners to think through each question instead of simply rushing to the next one. The overall presentation feels carefully put together." },
+        { name: "Demo learner 02", rating: 5, title: "Clean design with an easy learning flow", message: "The layout feels organised and welcoming. Moving between topics and starting a quiz is straightforward, so the experience stays focused on learning. It is clear that attention has gone into making the interface simple to use." },
+        { name: "Demo learner 03", rating: 4, title: "A useful way to practise and build confidence", message: "The quiz format makes revision feel more active and keeps the learner involved. I am giving four stars because I would love to see even more topic choices over time. The foundation is strong and the work behind it deserves appreciation." },
+        { name: "Demo learner 04", rating: 5, title: "The explanations make practice more meaningful", message: "What stands out is the learning-focused approach. A quiz is more valuable when it helps you understand the idea behind an answer, and this platform is designed with that purpose in mind. The experience feels purposeful rather than complicated." },
+        { name: "Demo learner 05", rating: 5, title: "A promising platform made with genuine effort", message: "The website has a polished feel and a clear direction. The sections work together to create a complete quiz experience, and the attention to presentation makes it enjoyable to explore. It is an impressive amount of work for a learning project." },
+        { name: "Demo learner 06", rating: 4, title: "Simple, focused and worth exploring", message: "I like that the platform keeps the main goal clear: practise, check your understanding and keep improving. Four stars because there is always room to expand the content and add more learning options, but the current experience already feels thoughtfully developed." }
+    ];
+
+    const section = document.createElement("section");
+    section.id = "sample-review-previews";
+    section.className = "sample-review-previews";
+    section.innerHTML = `
+        <div class="panel-heading" style="margin-top:24px">
+            <div>
+                <span class="story-eyebrow">ILLUSTRATIVE CONTENT</span>
+                <h3>Demo review examples</h3>
+                <p class="review-form-note">These are sample review drafts for preview only. They are not customer-submitted reviews and are not included in the public rating total.</p>
+            </div>
+        </div>
+        <div class="reviews-list">
+            ${samples.map((sample) => `
+                <article class="public-review-card">
+                    <div class="public-review-top">
+                        <div class="review-avatar">D</div>
+                        <div class="public-review-author">
+                            <strong>${sample.name}</strong>
+                            <span>Sample content · Not verified</span>
+                        </div>
+                        <span class="public-review-stars">${"★".repeat(sample.rating)}${"☆".repeat(5 - sample.rating)}</span>
+                    </div>
+                    <h4>${sample.title}</h4>
+                    <p class="public-review-message">${sample.message}</p>
+                </article>
+            `).join("")}
+        </div>
+    `;
+    list.insertAdjacentElement("afterend", section);
+}
+
 async function loadReviews() {
     const list = $("#reviews-list");
     if (list && !reviewRecords.length) list.innerHTML = '<p class="empty-state">Loading public reviews…</p>';
@@ -1756,6 +1801,7 @@ async function loadReviews() {
         const data = await apiRequest("/api/reviews", {cache:"no-store",headers:{"Cache-Control":"no-cache"}});
         reviewRecords = Array.isArray(data) ? data : [];
         renderPublicReviews(reviewRecords);
+        renderSampleReviewPreviews();
     } catch (error) {
         console.error("Reviews loading failed:", error);
         if (list && !reviewRecords.length) list.innerHTML = '<p class="empty-state">Reviews are temporarily unavailable. Please try again shortly.</p>';
