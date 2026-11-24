@@ -817,6 +817,25 @@ int quiz_engine_start(
             free(stored);
         }
 
+        /* If the unused pool is exhausted, start the next round immediately.
+           Never wait for AI merely because this topic's current round ended. */
+        if (selected_count < question_count &&
+            storage_question_bank_count(field_names[topic_index], 1) == 0 &&
+            storage_reset_question_usage(field_names[topic_index])) {
+            char *selected_json = questions_to_json_array(fresh_batch, selected_count);
+            if (selected_json) {
+                storage_mark_questions_used_json(field_names[topic_index], selected_json);
+                free(selected_json);
+            }
+            char *more = storage_take_questions_json(
+                field_names[topic_index], question_count - selected_count);
+            if (more) {
+                selected_count += parse_questions_json(
+                    more, fresh_batch + selected_count, question_count - selected_count);
+                free(more);
+            }
+        }
+
         /* Refill only the shortage. New questions are inserted and reserved
            atomically, and the database unique index rejects past questions. */
         for (int attempt = 1; selected_count < question_count && attempt <= 5; attempt++) {
@@ -849,26 +868,6 @@ int quiz_engine_start(
             fprintf(stderr, "[QUESTION BANK] Added %d never-used question(s); quiz has %d/%d.\n",
                     added, selected_count, question_count);
             if (added == 0) continue;
-        }
-
-        /* Start a new no-repeat round only after every stored question for
-           this topic has been consumed. Keep this quiz's picks reserved. */
-        if (selected_count < question_count &&
-            storage_question_bank_count(field_names[topic_index], 1) == 0) {
-            if (storage_reset_question_usage(field_names[topic_index])) {
-                char *selected_json = questions_to_json_array(fresh_batch, selected_count);
-                if (selected_json) {
-                    storage_mark_questions_used_json(field_names[topic_index], selected_json);
-                    free(selected_json);
-                }
-                char *more = storage_take_questions_json(
-                    field_names[topic_index], question_count - selected_count);
-                if (more) {
-                    selected_count += parse_questions_json(
-                        more, fresh_batch + selected_count, question_count - selected_count);
-                    free(more);
-                }
-            }
         }
 
         if (selected_count != question_count) {
