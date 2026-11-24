@@ -417,40 +417,77 @@ static int generate_fresh_batch(
     int previous_count,
     Question *destination
 ) {
-    for (int attempt = 1; attempt <= 3; attempt++) {
+    int accepted = 0;
+
+    /* Keep valid questions from each response. Never throw away a useful
+       partial batch just because some generated questions were duplicates. */
+    for (int attempt = 1; attempt <= 5 && accepted < question_count; attempt++) {
         AiTask task;
         memset(&task, 0, sizeof(task));
         snprintf(task.topic, sizeof(task.topic), "%s", field_names[topic_index]);
-        task.count = question_count;
 
-        /* Gemini accepts up to eight exclusions. Vary which previous questions
-           are supplied, then independently reject repeats against the full batch. */
+        int remaining = question_count - accepted;
+        task.count = remaining;
+
+        /* The prompt supports up to eight exclusions. Prioritize questions
+           already accepted for this quiz, then rotate through the old history. */
+        for (int i = 0; i < accepted && task.excluded_count < 8; i++) {
+            task.excluded[task.excluded_count++] = destination[i];
+        }
+
         int available_previous = previous ? previous_count : 0;
-        task.excluded_count = available_previous < 8 ? available_previous : 8;
-        int exclusion_start = available_previous > 0
-            ? rand() % available_previous : 0;
-        for (int i = 0; i < task.excluded_count; i++) {
-            int source = (exclusion_start + i + (attempt - 1) * 7) % available_previous;
-            task.excluded[i] = previous[source];
+        int previous_slots = 8 - task.excluded_count;
+        if (available_previous > 0 && previous_slots > 0) {
+            int start = ((attempt - 1) * previous_slots) % available_previous;
+            for (int offset = 0;
+                 offset < available_previous && task.excluded_count < 8;
+                 offset++) {
+                int source = (start + offset) % available_previous;
+                if (question_exists(&previous[source],
+                                    task.excluded, task.excluded_count)) {
+                    continue;
+                }
+                task.excluded[task.excluded_count++] = previous[source];
+            }
         }
 
-        printf("[AI] Generating fresh batch %d/3: %d %s questions.\n",
-               attempt, question_count, field_names[topic_index]);
+        printf("[AI] Generating batch attempt %d/5: requesting %d remaining %s questions.\n",
+               attempt, remaining, field_names[topic_index]);
+
         generate_questions(&task);
-        if (!task.success || task.generated_count != question_count) continue;
 
-        int accepted = 0;
-        for (int i = 0; i < task.generated_count; i++) {
-            if (previous && question_exists(&task.generated[i], previous, previous_count))
-                continue;
-            if (question_exists(&task.generated[i], destination, accepted))
-                continue;
-            destination[accepted++] = task.generated[i];
+        if (!task.success || task.generated_count <= 0) {
+            fprintf(stderr, "[AI] No provider returned usable questions; stopping instead of repeating the full provider chain.\n");
+            return 0;
         }
-        if (accepted == question_count) return 1;
-        fprintf(stderr, "[AI] Rejected batch: it repeated a question from the previous quiz.\n");
+
+        int before = accepted;
+        for (int i = 0; i < task.generated_count && accepted < question_count; i++) {
+            const Question *candidate = &task.generated[i];
+
+            if (previous &&
+                question_exists(candidate, previous, previous_count)) {
+                continue;
+            }
+
+            if (question_exists(candidate, destination, accepted)) {
+                continue;
+            }
+
+            destination[accepted++] = *candidate;
+        }
+
+        fprintf(stderr, "[AI] Unique questions collected: %d/%d (added %d on attempt %d).\n",
+                accepted, question_count, accepted - before, attempt);
     }
-    return 0;
+
+    if (accepted != question_count) {
+        fprintf(stderr, "[AI] Quiz cancelled: collected only %d of %d unique questions after 5 attempts.\n",
+                accepted, question_count);
+        return 0;
+    }
+
+    return 1;
 }
 
 /* ================= SHUFFLE QUESTIONS ================= */

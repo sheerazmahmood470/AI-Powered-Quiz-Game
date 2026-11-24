@@ -18,6 +18,10 @@ typedef struct {
     size_t len;
 } Buffer;
 
+/* Providers with invalid credentials or unusable responses are skipped for
+   the rest of this server process instead of delaying every later quiz. */
+static int provider_disabled[4] = {0, 0, 0, 0};
+
 /* ================= STRING VALIDATION ================= */
 
 static int has_text(const char *s) {
@@ -489,6 +493,10 @@ static int call_ai_provider(
     AiTask *task
 ) {
     if (!api_key || !api_key[0] || !prompt || !task) return 0;
+    if (provider >= 1 && provider <= 3 && provider_disabled[provider]) {
+        fprintf(stderr, "[AI] Provider %d is disabled for this process after an earlier configuration/response failure.\n", provider);
+        return 0;
+    }
 
     char url[1024];
     char auth_header[4096];
@@ -557,8 +565,9 @@ static int call_ai_provider(
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(body));
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 35L);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    /* Keep a slow/empty provider from holding a quiz-start request for 35 seconds. */
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 6L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
     CURLcode result = curl_easy_perform(curl);
@@ -570,9 +579,19 @@ static int call_ai_provider(
         task->generated_count = 0;
         memset(task->generated, 0, sizeof(task->generated));
         accepted = parse_provider_response(response.data, provider, task);
+        if (accepted <= 0) {
+            fprintf(stderr, "[AI] Provider %d returned HTTP 200, but its response contained no valid questions.\n", provider);
+            /* OpenRouter has returned an empty content body; avoid repeating
+               the same unusable route for every remaining batch attempt. */
+            if (provider == 3) provider_disabled[provider] = 1;
+        }
     } else if (response.data) {
         fprintf(stderr, "[AI] Provider %d returned HTTP %ld: %.500s\n",
             provider, status, response.data);
+        if ((status == 401 || status == 403) && provider >= 1 && provider <= 3) {
+            provider_disabled[provider] = 1;
+            fprintf(stderr, "[AI] Provider %d disabled for this process because authentication was rejected. Check its Render environment variables.\n", provider);
+        }
     } else if (result != CURLE_OK) {
         fprintf(stderr, "[AI] Provider %d request failed: %s\n",
             provider, curl_easy_strerror(result));
@@ -582,7 +601,9 @@ static int call_ai_provider(
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     free(body);
-    return accepted == task->count && task->generated_count == task->count;
+    /* A provider may return some valid unique questions even when other
+       entries are duplicates. Let the quiz engine request only the remainder. */
+    return accepted > 0 && task->generated_count > 0;
 }
 
 /* ================= GENERATE QUESTIONS ================= */
@@ -620,11 +641,12 @@ void *generate_questions(void *arg) {
         const char *name;
         const char *key;
     } providers[] = {
+        /* Try the second Gemini key immediately after a primary outage. */
         {0, "Gemini primary", gemini_primary},
+        {0, "Gemini final fallback", gemini_last},
         {1, "Groq", groq_key},
         {2, "Cloudflare Workers AI", cloudflare_key},
-        {3, "OpenRouter", openrouter_key},
-        {0, "Gemini final fallback", gemini_last}
+        {3, "OpenRouter", openrouter_key}
     };
 
     for (size_t i = 0; i < sizeof(providers) / sizeof(providers[0]); i++) {
