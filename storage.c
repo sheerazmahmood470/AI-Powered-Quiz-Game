@@ -73,6 +73,8 @@ static int seed_question_file(PGconn *db, const char *topic, const char *path) {
         "SELECT $1,md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g'))),item "
         "FROM jsonb_array_elements($2::jsonb) AS item "
         "WHERE jsonb_typeof(item)='object' AND length(trim(COALESCE(item->>'question','')))>0 "
+        "AND NOT EXISTS (SELECT 1 FROM quiz_question_archive a WHERE a.topic=$1 "
+        "AND a.question_hash=md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g')))) "
         "ON CONFLICT(topic,question_hash) DO NOTHING",
         2, NULL, values, NULL, NULL, 0);
     free(array);
@@ -115,7 +117,11 @@ int storage_init(void) {
         "direct_ready BOOLEAN NOT NULL DEFAULT FALSE);"
         "ALTER TABLE quiz_question_bank ADD COLUMN IF NOT EXISTS direct_ready BOOLEAN NOT NULL DEFAULT FALSE;"
         "CREATE UNIQUE INDEX IF NOT EXISTS quiz_question_bank_unique_idx ON quiz_question_bank(topic,question_hash);"
-        "CREATE INDEX IF NOT EXISTS quiz_question_bank_pick_idx ON quiz_question_bank(topic,used_at,id)");
+        "CREATE INDEX IF NOT EXISTS quiz_question_bank_pick_idx ON quiz_question_bank(topic,used_at,id);"
+        "CREATE TABLE IF NOT EXISTS quiz_question_archive("
+        "topic TEXT NOT NULL,question_hash TEXT NOT NULL,retired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),"
+        "PRIMARY KEY(topic,question_hash))"
+);
     int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
     if (r) PQclear(r);
 
@@ -522,11 +528,15 @@ char *storage_take_questions_json(const char *topic, int limit) {
     if (ok) {
         r = PQexecParams(db,
             "WITH picked AS ("
-            " SELECT id FROM quiz_question_bank WHERE topic=$1 "
+            " SELECT id FROM quiz_question_bank WHERE topic=$1 AND used_at IS NULL "
             " ORDER BY random() LIMIT $2::int FOR UPDATE SKIP LOCKED"
             "), removed AS ("
             " DELETE FROM quiz_question_bank q USING picked p "
-            " WHERE q.id=p.id RETURNING q.question"
+            " WHERE q.id=p.id RETURNING q.topic,q.question_hash,q.question"
+            "), archived AS ("
+            " INSERT INTO quiz_question_archive(topic,question_hash) "
+            " SELECT topic,question_hash FROM removed ON CONFLICT(topic,question_hash) DO NOTHING "
+            " RETURNING question_hash"
             ") SELECT COALESCE(jsonb_agg(question),'[]'::jsonb)::text FROM removed",
             2, NULL, values, NULL, NULL, 0);
         ok = r && PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1;
