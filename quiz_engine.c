@@ -164,6 +164,38 @@ static cJSON *question_to_json(const Question *q) {
     return item;
 }
 
+
+static char *questions_to_json_array(const Question *questions, int count) {
+    cJSON *array = cJSON_CreateArray();
+    if (!array) return NULL;
+    for (int i = 0; i < count; i++) {
+        cJSON *item = question_to_json(&questions[i]);
+        if (!item) { cJSON_Delete(array); return NULL; }
+        cJSON_AddItemToArray(array, item);
+    }
+    char *json = cJSON_PrintUnformatted(array);
+    cJSON_Delete(array);
+    return json;
+}
+
+static int parse_questions_json(const char *json, Question *destination, int capacity) {
+    if (!json || !destination || capacity <= 0) return 0;
+    cJSON *root = cJSON_Parse(json);
+    int count = 0;
+    if (cJSON_IsArray(root)) {
+        int total = cJSON_GetArraySize(root);
+        for (int i = 0; i < total && count < capacity; i++) {
+            Question candidate;
+            memset(&candidate, 0, sizeof(candidate));
+            if (!question_from_json(cJSON_GetArrayItem(root, i), &candidate)) continue;
+            if (question_exists(&candidate, destination, count)) continue;
+            destination[count++] = candidate;
+        }
+    }
+    cJSON_Delete(root);
+    return count;
+}
+
 /* ================= LOAD QUESTION BANK ================= */
 
 static int load_bank(
@@ -692,95 +724,173 @@ int quiz_engine_start(
     snprintf(session->player, sizeof(session->player), "%s", player);
     snprintf(session->topic, sizeof(session->topic), "%s", field_names[topic_index]);
 
-    Question previous_batch[MAX_AI_QUESTION_HISTORY];
+
     Question fresh_batch[WEB_MAX_QUESTIONS];
-    memset(previous_batch, 0, sizeof(previous_batch));
     memset(fresh_batch, 0, sizeof(fresh_batch));
 
-    int previous_count = 0;
-    if (process_question_cache_ready[topic_index]) {
-        previous_count = process_question_cache_count[topic_index];
-        memcpy(previous_batch, process_question_cache[topic_index],
-               (size_t)previous_count * sizeof(Question));
-    } else {
-        previous_count = load_ai_question_cache(topic_index, previous_batch);
-        if (previous_count > 0) {
-            memcpy(process_question_cache[topic_index], previous_batch,
-                   (size_t)previous_count * sizeof(Question));
-            process_question_cache_count[topic_index] = previous_count;
-            process_question_cache_ready[topic_index] = 1;
+    if (storage_is_configured()) {
+        /* Claim questions from the dedicated Neon question bank. History is
+           stored in quiz_history and is never read or written by this path. */
+        int selected_count = 0;
+        char *stored = storage_take_questions_json(field_names[topic_index], question_count);
+        if (stored) {
+            selected_count = parse_questions_json(stored, fresh_batch, question_count);
+            free(stored);
         }
-    }
 
-    /* Neon cache is a usable question bank, not only a no-repeat blacklist.
-       Consume cached questions first so quiz start does not wait for an AI call.
-       Rotate consumed questions to the end; newly generated questions refill it. */
-    int cached_count = previous_count < question_count ? previous_count : question_count;
-    if (cached_count > 0) {
-        memcpy(fresh_batch, previous_batch,
-               (size_t)cached_count * sizeof(Question));
+        /* Refill only the shortage. New questions are inserted and reserved
+           atomically, and the database unique index rejects past questions. */
+        for (int attempt = 1; selected_count < question_count && attempt <= 5; attempt++) {
+            AiTask task;
+            memset(&task, 0, sizeof(task));
+            snprintf(task.topic, sizeof(task.topic), "%s", field_names[topic_index]);
+            task.count = question_count - selected_count;
+            for (int i = 0; i < selected_count && task.excluded_count < 8; i++)
+                task.excluded[task.excluded_count++] = fresh_batch[i];
 
-        if (previous_count > 1) {
-            Question consumed[WEB_MAX_QUESTIONS];
-            int rotate_by = cached_count % previous_count;
-            if (rotate_by == 0) rotate_by = 1;
-            if (rotate_by > previous_count) rotate_by = previous_count;
-            int moved = 0;
-            while (moved < rotate_by) {
-                consumed[moved] = previous_batch[moved];
-                moved++;
+            fprintf(stderr, "[QUESTION BANK] %s has %d/%d questions; requesting %d new MCQs.\n",
+                    field_names[topic_index], selected_count, question_count, task.count);
+            generate_questions(&task);
+            if (!task.success || task.generated_count <= 0) break;
+
+            char *generated_json = questions_to_json_array(task.generated, task.generated_count);
+            if (!generated_json) break;
+            char *new_json = storage_add_claim_questions_json(field_names[topic_index], generated_json);
+            free(generated_json);
+            if (!new_json) break;
+
+            Question newly_claimed[WEB_MAX_QUESTIONS];
+            memset(newly_claimed, 0, sizeof(newly_claimed));
+            int added = parse_questions_json(new_json, newly_claimed, WEB_MAX_QUESTIONS);
+            free(new_json);
+            for (int i = 0; i < added && selected_count < question_count; i++) {
+                if (!question_exists(&newly_claimed[i], fresh_batch, selected_count))
+                    fresh_batch[selected_count++] = newly_claimed[i];
             }
-            memmove(previous_batch, previous_batch + rotate_by,
-                    (size_t)(previous_count - rotate_by) * sizeof(Question));
-            memcpy(previous_batch + previous_count - rotate_by, consumed,
-                   (size_t)rotate_by * sizeof(Question));
+            fprintf(stderr, "[QUESTION BANK] Added %d never-used question(s); quiz has %d/%d.\n",
+                    added, selected_count, question_count);
+            if (added == 0) continue;
         }
-        fprintf(stderr, "[CACHE] Reusing %d stored %s question(s); AI needed for %d.\n",
-                cached_count, field_names[topic_index], question_count - cached_count);
-    }
 
-    int needed = question_count - cached_count;
-    int retained_count = previous_count;
-    if (needed > 0) {
-        Question newly_generated[WEB_MAX_QUESTIONS];
-        memset(newly_generated, 0, sizeof(newly_generated));
+        /* Start a new no-repeat round only after every stored question for
+           this topic has been consumed. Keep this quiz's picks reserved. */
+        if (selected_count < question_count &&
+            storage_question_bank_count(field_names[topic_index], 1) == 0) {
+            if (storage_reset_question_usage(field_names[topic_index])) {
+                char *selected_json = questions_to_json_array(fresh_batch, selected_count);
+                if (selected_json) {
+                    storage_mark_questions_used_json(field_names[topic_index], selected_json);
+                    free(selected_json);
+                }
+                char *more = storage_take_questions_json(
+                    field_names[topic_index], question_count - selected_count);
+                if (more) {
+                    selected_count += parse_questions_json(
+                        more, fresh_batch + selected_count, question_count - selected_count);
+                    free(more);
+                }
+            }
+        }
 
-        if (!generate_fresh_batch(
-                topic_index, needed,
-                previous_count ? previous_batch : NULL,
-                previous_count, newly_generated)) {
-            fprintf(stderr, "[AI] Quiz cancelled: cache supplied %d/%d questions and AI could not fill the remaining %d.\n",
-                    cached_count, question_count, needed);
+        if (selected_count != question_count) {
+            fprintf(stderr, "[QUESTION BANK] Not enough unique questions for %s (%d/%d). No partial or duplicate quiz will be started.\n",
+                    field_names[topic_index], selected_count, question_count);
             goto cleanup;
         }
-
-        memcpy(fresh_batch + cached_count, newly_generated,
-               (size_t)needed * sizeof(Question));
-
-        if (retained_count + needed > MAX_AI_QUESTION_HISTORY) {
-            int drop_count = retained_count + needed - MAX_AI_QUESTION_HISTORY;
-            memmove(previous_batch, previous_batch + drop_count,
-                    (size_t)(retained_count - drop_count) * sizeof(Question));
-            retained_count -= drop_count;
-        }
-        memcpy(previous_batch + retained_count, newly_generated,
-               (size_t)needed * sizeof(Question));
-        retained_count += needed;
-    }
-
-    /* Shuffle only the quiz copy; keep the persistent bank's queue order. */
-    shuffle_questions(fresh_batch, question_count);
-
-    memcpy(process_question_cache[topic_index], previous_batch,
-           (size_t)retained_count * sizeof(Question));
-    process_question_cache_count[topic_index] = retained_count;
-    process_question_cache_ready[topic_index] = 1;
-
-    if (save_ai_question_cache(topic_index, retained_count, previous_batch)) {
-        printf("[CACHE] Saved rolling history (%d questions) for %s; current %d-question quiz batch is ready.\n",
-               retained_count, field_names[topic_index], question_count);
+        shuffle_questions(fresh_batch, question_count);
     } else {
-        fprintf(stderr, "[CACHE] Persistent no-repeat reference could not be updated; current batch remains available in memory.\n");
+            Question previous_batch[MAX_AI_QUESTION_HISTORY];
+            Question fresh_batch[WEB_MAX_QUESTIONS];
+            memset(previous_batch, 0, sizeof(previous_batch));
+            memset(fresh_batch, 0, sizeof(fresh_batch));
+        
+            int previous_count = 0;
+            if (process_question_cache_ready[topic_index]) {
+                previous_count = process_question_cache_count[topic_index];
+                memcpy(previous_batch, process_question_cache[topic_index],
+                       (size_t)previous_count * sizeof(Question));
+            } else {
+                previous_count = load_ai_question_cache(topic_index, previous_batch);
+                if (previous_count > 0) {
+                    memcpy(process_question_cache[topic_index], previous_batch,
+                           (size_t)previous_count * sizeof(Question));
+                    process_question_cache_count[topic_index] = previous_count;
+                    process_question_cache_ready[topic_index] = 1;
+                }
+            }
+        
+            /* Neon cache is a usable question bank, not only a no-repeat blacklist.
+               Consume cached questions first so quiz start does not wait for an AI call.
+               Rotate consumed questions to the end; newly generated questions refill it. */
+            int cached_count = previous_count < question_count ? previous_count : question_count;
+            if (cached_count > 0) {
+                memcpy(fresh_batch, previous_batch,
+                       (size_t)cached_count * sizeof(Question));
+        
+                if (previous_count > 1) {
+                    Question consumed[WEB_MAX_QUESTIONS];
+                    int rotate_by = cached_count % previous_count;
+                    if (rotate_by == 0) rotate_by = 1;
+                    if (rotate_by > previous_count) rotate_by = previous_count;
+                    int moved = 0;
+                    while (moved < rotate_by) {
+                        consumed[moved] = previous_batch[moved];
+                        moved++;
+                    }
+                    memmove(previous_batch, previous_batch + rotate_by,
+                            (size_t)(previous_count - rotate_by) * sizeof(Question));
+                    memcpy(previous_batch + previous_count - rotate_by, consumed,
+                           (size_t)rotate_by * sizeof(Question));
+                }
+                fprintf(stderr, "[CACHE] Reusing %d stored %s question(s); AI needed for %d.\n",
+                        cached_count, field_names[topic_index], question_count - cached_count);
+            }
+        
+            int needed = question_count - cached_count;
+            int retained_count = previous_count;
+            if (needed > 0) {
+                Question newly_generated[WEB_MAX_QUESTIONS];
+                memset(newly_generated, 0, sizeof(newly_generated));
+        
+                if (!generate_fresh_batch(
+                        topic_index, needed,
+                        previous_count ? previous_batch : NULL,
+                        previous_count, newly_generated)) {
+                    fprintf(stderr, "[AI] Quiz cancelled: cache supplied %d/%d questions and AI could not fill the remaining %d.\n",
+                            cached_count, question_count, needed);
+                    goto cleanup;
+                }
+        
+                memcpy(fresh_batch + cached_count, newly_generated,
+                       (size_t)needed * sizeof(Question));
+        
+                if (retained_count + needed > MAX_AI_QUESTION_HISTORY) {
+                    int drop_count = retained_count + needed - MAX_AI_QUESTION_HISTORY;
+                    memmove(previous_batch, previous_batch + drop_count,
+                            (size_t)(retained_count - drop_count) * sizeof(Question));
+                    retained_count -= drop_count;
+                }
+                memcpy(previous_batch + retained_count, newly_generated,
+                       (size_t)needed * sizeof(Question));
+                retained_count += needed;
+            }
+        
+            /* Shuffle only the quiz copy; keep the persistent bank's queue order. */
+            shuffle_questions(fresh_batch, question_count);
+        
+            memcpy(process_question_cache[topic_index], previous_batch,
+                   (size_t)retained_count * sizeof(Question));
+            process_question_cache_count[topic_index] = retained_count;
+            process_question_cache_ready[topic_index] = 1;
+        
+            if (save_ai_question_cache(topic_index, retained_count, previous_batch)) {
+                printf("[CACHE] Saved rolling history (%d questions) for %s; current %d-question quiz batch is ready.\n",
+                       retained_count, field_names[topic_index], question_count);
+            } else {
+                fprintf(stderr, "[CACHE] Persistent no-repeat reference could not be updated; current batch remains available in memory.\n");
+            }
+        
+        
     }
 
     for (int i = 0; i < question_count; i++) {
