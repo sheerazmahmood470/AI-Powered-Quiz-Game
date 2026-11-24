@@ -111,7 +111,9 @@ int storage_init(void) {
         "CREATE INDEX IF NOT EXISTS quiz_reviews_fifo_idx ON quiz_reviews(created_at,id);"
         "CREATE TABLE IF NOT EXISTS quiz_question_bank("
         "id BIGSERIAL PRIMARY KEY,topic TEXT NOT NULL,question_hash TEXT NOT NULL,"
-        "question JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),used_at TIMESTAMPTZ);"
+        "question JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),used_at TIMESTAMPTZ,"
+        "direct_ready BOOLEAN NOT NULL DEFAULT FALSE);"
+        "ALTER TABLE quiz_question_bank ADD COLUMN IF NOT EXISTS direct_ready BOOLEAN NOT NULL DEFAULT FALSE;"
         "CREATE UNIQUE INDEX IF NOT EXISTS quiz_question_bank_unique_idx ON quiz_question_bank(topic,question_hash);"
         "CREATE INDEX IF NOT EXISTS quiz_question_bank_pick_idx ON quiz_question_bank(topic,used_at,id)");
     int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
@@ -421,6 +423,65 @@ int storage_add_questions_json(const char *topic, const char *questions_json) {
     return ok;
 }
 
+/* Store API questions reserved for direct delivery to a future quiz. */
+int storage_add_direct_questions_json(const char *topic, const char *questions_json) {
+    if (!storage_is_configured() || !topic || !questions_json) return 0;
+    PGconn *db = open_database();
+    if (!db) return 0;
+    const char *values[2] = { topic, questions_json };
+    PGresult *r = PQexecParams(db,
+        "INSERT INTO quiz_question_bank(topic,question_hash,question,direct_ready) "
+        "SELECT $1,md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g'))),item,TRUE "
+        "FROM jsonb_array_elements($2::jsonb) AS item "
+        "WHERE jsonb_typeof(item)='object' AND length(trim(COALESCE(item->>'question','')))>0 "
+        "ON CONFLICT(topic,question_hash) DO NOTHING",
+        2, NULL, values, NULL, NULL, 0);
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
+    PQfinish(db);
+    return ok;
+}
+
+/* Atomically claim the persistent direct-delivery queue. */
+char *storage_take_direct_questions_json(const char *topic, int limit) {
+    if (!storage_is_configured() || !topic || limit <= 0 || limit > 15) return NULL;
+    PGconn *db = open_database();
+    if (!db) return NULL;
+    const char *values[2] = { topic, NULL };
+    char limit_text[16];
+    snprintf(limit_text, sizeof(limit_text), "%d", limit);
+    values[1] = limit_text;
+    PGresult *r = PQexec(db, "BEGIN");
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
+    char *copy = NULL;
+    if (ok) {
+        r = PQexecParams(db,
+            "WITH picked AS ("
+            " SELECT id FROM quiz_question_bank WHERE topic=$1 AND used_at IS NULL AND direct_ready=TRUE "
+            " ORDER BY id LIMIT $2::int FOR UPDATE SKIP LOCKED"
+            "), claimed AS ("
+            " UPDATE quiz_question_bank q SET used_at=NOW() FROM picked p "
+            " WHERE q.id=p.id RETURNING q.question"
+            ") SELECT COALESCE(jsonb_agg(question),'[]'::jsonb)::text FROM claimed",
+            2, NULL, values, NULL, NULL, 0);
+        ok = r && PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1;
+        if (ok) copy = strdup(PQgetvalue(r, 0, 0));
+        if (r) PQclear(r);
+    }
+    if (ok) {
+        r = PQexec(db, "COMMIT");
+        ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+        if (r) PQclear(r);
+    } else {
+        r = PQexec(db, "ROLLBACK");
+        if (r) PQclear(r);
+    }
+    PQfinish(db);
+    if (!ok) { free(copy); return NULL; }
+    return copy;
+}
+
 /* Atomically claim unused questions so concurrent Render instances cannot
    serve the same bank entry in different quizzes. */
 char *storage_take_questions_json(const char *topic, int limit) {
@@ -438,7 +499,7 @@ char *storage_take_questions_json(const char *topic, int limit) {
     if (ok) {
         r = PQexecParams(db,
             "WITH picked AS ("
-            " SELECT id FROM quiz_question_bank WHERE topic=$1 AND used_at IS NULL "
+            " SELECT id FROM quiz_question_bank WHERE topic=$1 AND used_at IS NULL AND direct_ready=FALSE "
             " ORDER BY random() LIMIT $2::int FOR UPDATE SKIP LOCKED"
             "), claimed AS ("
             " UPDATE quiz_question_bank q SET used_at=NOW() FROM picked p "
