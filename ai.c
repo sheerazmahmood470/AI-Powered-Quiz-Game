@@ -618,12 +618,6 @@ void *generate_questions(void *arg) {
         return NULL;
     }
 
-    char prompt[MAX_PROMPT_SIZE];
-    if (!build_prompt(task, prompt, sizeof(prompt))) {
-        fprintf(stderr, "[AI] Prompt creation failed.\n");
-        return NULL;
-    }
-
     const char *gemini_primary = getenv("GEMINI_API_KEY");
     const char *groq_key = getenv("GROQ_API_KEY");
     const char *cloudflare_key = getenv("CLOUDFLARE_API_TOKEN");
@@ -664,6 +658,12 @@ void *generate_questions(void *arg) {
         provider_task.excluded_count = task->excluded_count;
         for (int j = 0; j < task->excluded_count; j++)
             provider_task.excluded[j] = task->excluded[j];
+
+        char prompt[MAX_PROMPT_SIZE];
+        if (!build_prompt(&provider_task, prompt, sizeof(prompt))) {
+            fprintf(stderr, "[AI] Prompt creation failed for %s.\n", providers[i].name);
+            continue;
+        }
 
         fprintf(stderr, "[AI] Trying %s (%zu/5), need %d question(s).\n",
             providers[i].name, i + 1, provider_task.count);
