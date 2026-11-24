@@ -360,11 +360,20 @@ static int load_ai_question_cache(
     int topic_index,
     Question *destination
 ) {
-    if (!storage_is_configured()) return 0;
+    if (topic_index < 0 || topic_index >= 5 || !destination) return 0;
     char key[80];
     snprintf(key, sizeof(key), "ai_questions_v2_%d", topic_index);
-    char *data = storage_read_json(key);
-    if (!data) return 0;
+    char *data = storage_is_configured() ? storage_read_json(key) : NULL;
+    if (!data) {
+        /* Seed the usable cache from the bundled topic JSON bank on first use.
+           This gives instant quizzes even when every external AI provider is down. */
+        int seeded = load_bank(field_files[topic_index], destination);
+        if (seeded > 0) {
+            fprintf(stderr, "[CACHE] Loaded %d bundled %s question(s) as the initial local bank.\n",
+                    seeded, field_names[topic_index]);
+        }
+        return seeded;
+    }
     cJSON *root = cJSON_Parse(data);
     free(data);
     cJSON *items = root
@@ -711,14 +720,20 @@ int quiz_engine_start(
         memcpy(fresh_batch, previous_batch,
                (size_t)cached_count * sizeof(Question));
 
-        if (previous_count > cached_count) {
+        if (previous_count > 1) {
             Question consumed[WEB_MAX_QUESTIONS];
-            memcpy(consumed, previous_batch,
-                   (size_t)cached_count * sizeof(Question));
-            memmove(previous_batch, previous_batch + cached_count,
-                    (size_t)(previous_count - cached_count) * sizeof(Question));
-            memcpy(previous_batch + previous_count - cached_count, consumed,
-                   (size_t)cached_count * sizeof(Question));
+            int rotate_by = cached_count % previous_count;
+            if (rotate_by == 0) rotate_by = 1;
+            if (rotate_by > previous_count) rotate_by = previous_count;
+            int moved = 0;
+            while (moved < rotate_by) {
+                consumed[moved] = previous_batch[moved];
+                moved++;
+            }
+            memmove(previous_batch, previous_batch + rotate_by,
+                    (size_t)(previous_count - rotate_by) * sizeof(Question));
+            memcpy(previous_batch + previous_count - rotate_by, consumed,
+                   (size_t)rotate_by * sizeof(Question));
         }
         fprintf(stderr, "[CACHE] Reusing %d stored %s question(s); AI needed for %d.\n",
                 cached_count, field_names[topic_index], question_count - cached_count);
