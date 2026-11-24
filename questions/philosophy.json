@@ -1,53 +1,169 @@
 {
-	"questions":	[{
-			"question":	"Which philosophical movement, popularized by Jean-Paul Sartre, posits that existence precedes essence?",
-			"options":	["Stoicism", "Existentialism", "Utilitarianism", "Empiricism"],
-			"correct_option":	"B",
-			"explanation":	"Existentialism argues that humans are not born with a predefined purpose or essence. Instead, we exist first, and it is through our choices and actions that we define our meaning and essence."
-		}, {
-			"question":	"In epistemology, what is the term for knowledge that is acquired independently of sensory experience?",
-			"options":	["A posteriori", "Empirical", "A priori", "Synthetic"],
-			"correct_option":	"C",
-			"explanation":	"A priori knowledge is justified independently of experience, such as logical truths and mathematical axioms. In contrast, a posteriori knowledge relies heavily on empirical observation."
-		}, {
-			"question":	"Who formulated the categorical imperative as the central philosophical concept of his deontological ethics?",
-			"options":	["John Stuart Mill", "Immanuel Kant", "Aristotle", "Friedrich Nietzsche"],
-			"correct_option":	"B",
-			"explanation":	"Immanuel Kant developed the categorical imperative, which dictates that moral actions must be universally applicable and treat rational beings as ends in themselves rather than mere means."
-		}, {
-			"question":	"What is the primary concern of Thomas Nagel's famous essay 'What Is It Like to Be a Bat?'",
-			"options":	["The subjective nature of conscious experience", "The ethical treatment of non-human animals", "The limitations of evolutionary biology", "The validity of inductive reasoning"],
-			"correct_option":	"A",
-			"explanation":	"Nagel uses the bat example to illustrate the 'hard problem of consciousness,' arguing that physicalist accounts of the mind fail to capture the subjective, first-person character of experience."
-		}, {
-			"question":	"Which pre-Socratic philosopher is famously associated with the doctrine of perpetual change, summarized by the phrase 'you cannot step into the same river twice'?",
-			"options":	["Parmenides", "Heraclitus", "Thales", "Democritus"],
-			"correct_option":	"B",
-			"explanation":	"Heraclitus emphasized flux and change as the fundamental reality of the universe. Parmenides, conversely, argued that change is an illusion and that reality is unchanging and permanent."
-		}, {
-			"question":	"What philosophical problem, introduced by Willard Van Orman Quine, demonstrates that an infinite number of hypotheses can consistently account for the same set of empirical data?",
-			"options":	["The Gettier problem", "The problem of induction", "Underdetermination", "The Ship of Theseus"],
-			"correct_option":	"C",
-			"explanation":	"Underdetermination occurs when the evidence available is insufficient to uniquely determine which theory or belief is the correct one, challenging simplistic views of scientific confirmation."
-		}, {
-			"question":	"Which ethical theory evaluates the moral worth of an action solely based on its consequences, aiming to maximize overall happiness?",
-			"options":	["Deontology", "Virtue ethics", "Utilitarianism", "Divine command theory"],
-			"correct_option":	"C",
-			"explanation":	"Utilitarianism is a consequentialist framework pioneered by thinkers like Jeremy Bentham and John Stuart Mill, holding that the right action is that which produces the greatest good for the greatest number."
-		}, {
-			"question":	"What does Philippa Foot's famous 'Trolley Problem' primarily seek to test in moral philosophy?",
-			"options":	["The distinction between doing harm and allowing harm", "The economic efficiency of public infrastructure", "The validity of contractual agreements", "The limits of human sensory perception"],
-			"correct_option":	"A",
-			"explanation":	"The trolley problem explores moral intuitions regarding whether it is permissible to actively cause harm to one person to save five others, highlighting tensions between deontological and utilitarian views."
-		}, {
-			"question":	"In the philosophy of language, what is the term for words whose meaning depends entirely on the context in which they are uttered, such as 'here', 'now', or 'I'?",
-			"options":	["Tautologies", "Indexicals", "Synthetic propositions", "Logical positivities"],
-			"correct_option":	"B",
-			"explanation":	"Indexicals are linguistic expressions whose reference shifts depending on the speaker, time, or location of the utterance. Without contextual clues, their exact meaning remains incomplete."
-		}, {
-			"question":	"What central concept in David Hume's philosophy highlights the logical gap between descriptive statements about how things are and normative statements about how things ought to be?",
-			"options":	["The bundle theory", "The fact-value distinction", "The problem of other minds", "The verification criterion"],
-			"correct_option":	"B",
-			"explanation":	"Often called Hume's Law or the is-ought problem, this principle warns against illicitly deriving moral prescriptions ('ought') purely from empirical descriptions of reality ('is')."
-		}]
+  "questions": [
+    {
+      "question": "Which philosophical movement, popularized by Jean-Paul Sartre, posits that existence precedes essence?",
+      "options": [
+        "Stoicism",
+        "Existentialism",
+        "Utilitarianism",
+        "Empiricism"
+      ],
+      "correct_option": "B",
+      "explanation": "Existentialism argues that humans are not born with a predefined purpose or essence. Instead, we exist first, and it is through our choices and actions that we define our meaning and essence."
+    },
+    {
+      "question": "In epistemology, what is the term for knowledge that is acquired independently of sensory experience?",
+      "options": [
+        "A posteriori",
+        "Empirical",
+        "A priori",
+        "Synthetic"
+      ],
+      "correct_option": "C",
+      "explanation": "A priori knowledge is justified independently of experience, such as logical truths and mathematical axioms. In contrast, a posteriori knowledge relies heavily on empirical observation."
+    },
+    {
+      "question": "Who formulated the categorical imperative as the central philosophical concept of his deontological ethics?",
+      "options": [
+        "John Stuart Mill",
+        "Immanuel Kant",
+        "Aristotle",
+        "Friedrich Nietzsche"
+      ],
+      "correct_option": "B",
+      "explanation": "Immanuel Kant developed the categorical imperative, which dictates that moral actions must be universally applicable and treat rational beings as ends in themselves rather than mere means."
+    },
+    {
+      "question": "What is the primary concern of Thomas Nagel's famous essay 'What Is It Like to Be a Bat?'",
+      "options": [
+        "The subjective nature of conscious experience",
+        "The ethical treatment of non-human animals",
+        "The limitations of evolutionary biology",
+        "The validity of inductive reasoning"
+      ],
+      "correct_option": "A",
+      "explanation": "Nagel uses the bat example to illustrate the 'hard problem of consciousness,' arguing that physicalist accounts of the mind fail to capture the subjective, first-person character of experience."
+    },
+    {
+      "question": "Which pre-Socratic philosopher is famously associated with the doctrine of perpetual change, summarized by the phrase 'you cannot step into the same river twice'?",
+      "options": [
+        "Parmenides",
+        "Heraclitus",
+        "Thales",
+        "Democritus"
+      ],
+      "correct_option": "B",
+      "explanation": "Heraclitus emphasized flux and change as the fundamental reality of the universe. Parmenides, conversely, argued that change is an illusion and that reality is unchanging and permanent."
+    },
+    {
+      "question": "What philosophical problem, introduced by Willard Van Orman Quine, demonstrates that an infinite number of hypotheses can consistently account for the same set of empirical data?",
+      "options": [
+        "The Gettier problem",
+        "The problem of induction",
+        "Underdetermination",
+        "The Ship of Theseus"
+      ],
+      "correct_option": "C",
+      "explanation": "Underdetermination occurs when the evidence available is insufficient to uniquely determine which theory or belief is the correct one, challenging simplistic views of scientific confirmation."
+    },
+    {
+      "question": "Which ethical theory evaluates the moral worth of an action solely based on its consequences, aiming to maximize overall happiness?",
+      "options": [
+        "Deontology",
+        "Virtue ethics",
+        "Utilitarianism",
+        "Divine command theory"
+      ],
+      "correct_option": "C",
+      "explanation": "Utilitarianism is a consequentialist framework pioneered by thinkers like Jeremy Bentham and John Stuart Mill, holding that the right action is that which produces the greatest good for the greatest number."
+    },
+    {
+      "question": "What does Philippa Foot's famous 'Trolley Problem' primarily seek to test in moral philosophy?",
+      "options": [
+        "The distinction between doing harm and allowing harm",
+        "The economic efficiency of public infrastructure",
+        "The validity of contractual agreements",
+        "The limits of human sensory perception"
+      ],
+      "correct_option": "A",
+      "explanation": "The trolley problem explores moral intuitions regarding whether it is permissible to actively cause harm to one person to save five others, highlighting tensions between deontological and utilitarian views."
+    },
+    {
+      "question": "In the philosophy of language, what is the term for words whose meaning depends entirely on the context in which they are uttered, such as 'here', 'now', or 'I'?",
+      "options": [
+        "Tautologies",
+        "Indexicals",
+        "Synthetic propositions",
+        "Logical positivities"
+      ],
+      "correct_option": "B",
+      "explanation": "Indexicals are linguistic expressions whose reference shifts depending on the speaker, time, or location of the utterance. Without contextual clues, their exact meaning remains incomplete."
+    },
+    {
+      "question": "What central concept in David Hume's philosophy highlights the logical gap between descriptive statements about how things are and normative statements about how things ought to be?",
+      "options": [
+        "The bundle theory",
+        "The fact-value distinction",
+        "The problem of other minds",
+        "The verification criterion"
+      ],
+      "correct_option": "B",
+      "explanation": "Often called Hume's Law or the is-ought problem, this principle warns against illicitly deriving moral prescriptions ('ought') purely from empirical descriptions of reality ('is')."
+    },
+    {
+      "question": "Which method of philosophical inquiry is most closely associated with Socrates and uses questioning to examine beliefs?",
+      "options": [
+        "Empirical induction",
+        "Socratic elenchus",
+        "Logical positivism",
+        "Phenomenological reduction"
+      ],
+      "correct_option": "B",
+      "explanation": "Socratic elenchus tests beliefs through systematic questions and examination."
+    },
+    {
+      "question": "In Plato's philosophy, what do the Forms represent?",
+      "options": [
+        "Changing physical objects",
+        "Perfect and unchanging realities",
+        "Personal emotions",
+        "Scientific experiments"
+      ],
+      "correct_option": "B",
+      "explanation": "Plato describes Forms as perfect, eternal patterns of which physical things are imperfect copies."
+    },
+    {
+      "question": "Which ancient philosopher is most closely associated with virtue ethics and the concept of eudaimonia?",
+      "options": [
+        "Aristotle",
+        "Epicurus",
+        "Zeno of Citium",
+        "Protagoras"
+      ],
+      "correct_option": "A",
+      "explanation": "Aristotle connects a flourishing life with developing virtues through habitual practice."
+    },
+    {
+      "question": "Which statement is associated with René Descartes's method of radical doubt?",
+      "options": [
+        "The unexamined life is not worth living",
+        "I think, therefore I am",
+        "Knowledge is power",
+        "Man is the measure of all things"
+      ],
+      "correct_option": "B",
+      "explanation": "Descartes treats the act of thinking as evidence that the thinker exists."
+    },
+    {
+      "question": "In John Rawls's theory of justice, what is the purpose of the veil of ignorance?",
+      "options": [
+        "To remove all laws from society",
+        "To choose principles without knowing one's social position",
+        "To prevent people from learning history",
+        "To guarantee equal personal outcomes"
+      ],
+      "correct_option": "B",
+      "explanation": "The veil prevents decision-makers from tailoring principles to their own social advantage."
+    }
+  ]
 }
