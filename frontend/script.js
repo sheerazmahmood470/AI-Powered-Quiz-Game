@@ -1107,15 +1107,42 @@ function showQuizResults(data) {
     if (!reviewContainer.parentNode) resultScreen.appendChild(reviewContainer);
     const reviewItems = Array.isArray(data.answer_review) ? data.answer_review : [];
     reviewContainer.innerHTML = reviewItems.length ? `
-        <h3>Answer Review</h3>
+        <div class="answer-review-heading">
+            <div>
+                <span class="story-eyebrow">LEARN FROM YOUR ATTEMPT</span>
+                <h3>Question review</h3>
+                <p>Review each answer and understand why it is correct.</p>
+            </div>
+            <span class="answer-review-count">${reviewItems.length} ${reviewItems.length === 1 ? "QUESTION" : "QUESTIONS"}</span>
+        </div>
         <div class="quiz-answer-review-list">
-            ${reviewItems.map((item) => `
-                <article class="quiz-answer-review-item ${item.correct ? "correct" : "incorrect"}">
-                    <strong>Q${Number(item.number) || ""}. ${escapeHTML(item.question || "")}</strong>
-                    <p>Your answer: <b>${escapeHTML(item.selected_answer || "")}</b> · Correct answer: <b>${escapeHTML(item.correct_answer || "")}</b></p>
-                    <p>${escapeHTML(normalizeDisplayText(item.explanation || ""))}</p>
-                </article>
-            `).join("")}
+            ${reviewItems.map((item, index) => {
+                const isCorrect = Boolean(item.correct);
+                const questionNumber = Number(item.number) || index + 1;
+                const explanation = normalizeDisplayText(item.explanation || "No explanation was provided for this question.");
+                return `
+                <article class="quiz-answer-review-item ${isCorrect ? "correct" : "incorrect"}">
+                    <div class="answer-review-card-top">
+                        <span class="answer-review-number">QUESTION ${String(questionNumber).padStart(2, "0")}</span>
+                        <span class="answer-review-status">${isCorrect ? "✓ Correct" : "✕ Incorrect"}</span>
+                    </div>
+                    <h4 class="answer-review-question">${escapeHTML(normalizeDisplayText(item.question || "Question unavailable"))}</h4>
+                    <div class="answer-review-answers">
+                        <div class="answer-review-answer your-answer">
+                            <span>Your answer</span>
+                            <strong>${escapeHTML(item.selected_answer || "Not answered")}</strong>
+                        </div>
+                        <div class="answer-review-answer correct-answer">
+                            <span>Correct answer</span>
+                            <strong>${escapeHTML(item.correct_answer || "Not available")}</strong>
+                        </div>
+                    </div>
+                    <div class="answer-review-explanation">
+                        <span class="answer-review-explanation-label">EXPLANATION</span>
+                        <p>${escapeHTML(explanation)}</p>
+                    </div>
+                </article>`;
+            }).join("")}
         </div>` : "";
     loadDashboardData();
     loadAnalytics();
