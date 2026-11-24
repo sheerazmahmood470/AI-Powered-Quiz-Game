@@ -206,35 +206,6 @@ static int parse_questions_json(const char *json, Question *destination, int cap
 static pthread_mutex_t bank_refill_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int bank_refill_active[5];
 
-/* Questions generated in the background and reserved for direct delivery
-   to upcoming quizzes. Their Neon rows are marked used while they are queued. */
-static Question direct_question_pool[5][MAX_AI_QUESTION_HISTORY];
-static int direct_question_pool_count[5];
-static pthread_mutex_t direct_question_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-static int take_direct_questions(int topic_index, Question *out, int wanted) {
-    if (topic_index < 0 || topic_index >= 5 || !out || wanted <= 0) return 0;
-    pthread_mutex_lock(&direct_question_pool_mutex);
-    int take = direct_question_pool_count[topic_index] < wanted
-        ? direct_question_pool_count[topic_index] : wanted;
-    if (take > 0) {
-        memcpy(out, direct_question_pool[topic_index], (size_t)take * sizeof(Question));
-        memmove(direct_question_pool[topic_index],
-                direct_question_pool[topic_index] + take,
-                (size_t)(direct_question_pool_count[topic_index] - take) * sizeof(Question));
-        direct_question_pool_count[topic_index] -= take;
-    }
-    pthread_mutex_unlock(&direct_question_pool_mutex);
-    return take;
-}
-
-static void clear_direct_questions(int topic_index) {
-    if (topic_index < 0 || topic_index >= 5) return;
-    pthread_mutex_lock(&direct_question_pool_mutex);
-    direct_question_pool_count[topic_index] = 0;
-    pthread_mutex_unlock(&direct_question_pool_mutex);
-}
-
 static void *question_bank_refill_worker(void *argument) {
     int topic_index = *(int *)argument;
     free(argument);
@@ -254,51 +225,18 @@ static void *question_bank_refill_worker(void *argument) {
             ? questions_to_json_array(task.generated, direct_count) : NULL;
         char *neon_json = neon_count > 0
             ? questions_to_json_array(task.generated + direct_count, neon_count) : NULL;
-        int saved_direct = 1, saved_neon = 1;
-
-        /* First half is inserted and retired for direct delivery; second
-           half remains unused in Neon for the next quiz. */
-        if (direct_count > 0 && direct_json) {
-            char *claimed_json = storage_add_claim_questions_json(
-                field_names[topic_index], direct_json);
-            saved_direct = claimed_json != NULL;
-            if (claimed_json) {
-                Question claimed[WEB_MAX_QUESTIONS];
-                memset(claimed, 0, sizeof(claimed));
-                int claimed_count = parse_questions_json(
-                    claimed_json, claimed, WEB_MAX_QUESTIONS);
-                free(claimed_json);
-                pthread_mutex_lock(&direct_question_pool_mutex);
-                for (int i = 0; i < claimed_count &&
-                     direct_question_pool_count[topic_index] < MAX_AI_QUESTION_HISTORY; i++) {
-                    if (!question_exists(&claimed[i],
-                            direct_question_pool[topic_index],
-                            direct_question_pool_count[topic_index])) {
-                        direct_question_pool[topic_index]
-                            [direct_question_pool_count[topic_index]++] = claimed[i];
-                    }
-                }
-                pthread_mutex_unlock(&direct_question_pool_mutex);
-            }
-        } else if (direct_count > 0) {
-            saved_direct = 0;
-        }
-
-        if (neon_count > 0 && neon_json) {
-            saved_neon = storage_add_questions_json(field_names[topic_index], neon_json);
-        } else if (neon_count > 0) {
-            saved_neon = 0;
-        }
+        int saved_direct = direct_count == 0 ||
+            (direct_json && storage_add_direct_questions_json(
+                field_names[topic_index], direct_json));
+        int saved_neon = neon_count == 0 ||
+            (neon_json && storage_add_questions_json(
+                field_names[topic_index], neon_json));
         free(direct_json);
         free(neon_json);
-
         int after = storage_question_bank_count(field_names[topic_index], 1);
-        pthread_mutex_lock(&direct_question_pool_mutex);
-        int ready = direct_question_pool_count[topic_index];
-        pthread_mutex_unlock(&direct_question_pool_mutex);
-        fprintf(stderr, "[QUESTION BANK] Background API split %s; %s: %d unused Neon questions, %d direct-ready questions.\n",
+        fprintf(stderr, "[QUESTION BANK] Background API split %s; %s has %d available Neon/direct questions.\n",
                 (saved_direct && saved_neon) ? "saved" : "partially saved",
-                field_names[topic_index], after, ready);
+                field_names[topic_index], after);
     } else {
         fprintf(stderr, "[QUESTION BANK] Background providers returned no valid questions for %s.\n",
                 field_names[topic_index]);
@@ -879,8 +817,14 @@ int quiz_engine_start(
         /* 50/50 target: pre-generated background API questions plus Neon.
            If the direct queue is not ready yet, Neon fills the quiz without
            waiting for a provider request. */
-        int selected_count = take_direct_questions(
-            topic_index, fresh_batch, question_count / 2);
+        int selected_count = 0;
+        int direct_wanted = question_count / 2;
+        char *direct = storage_take_direct_questions_json(
+            field_names[topic_index], direct_wanted);
+        if (direct) {
+            selected_count = parse_questions_json(direct, fresh_batch, direct_wanted);
+            free(direct);
+        }
         int neon_wanted = question_count - selected_count;
         char *stored = storage_take_questions_json(field_names[topic_index], neon_wanted);
         if (stored) {
