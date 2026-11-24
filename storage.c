@@ -504,8 +504,9 @@ char *storage_take_direct_questions_json(const char *topic, int limit) {
     return copy;
 }
 
-/* Atomically claim unused questions so concurrent Render instances cannot
-   serve the same bank entry in different quizzes. */
+/* Atomically CUT questions out of the active Neon bank.
+   DELETE ... RETURNING makes delivery and removal one transaction: once a
+   quiz receives a question, that row no longer exists in this topic's bank. */
 char *storage_take_questions_json(const char *topic, int limit) {
     if (!storage_is_configured() || !topic || limit <= 0 || limit > 15) return NULL;
     PGconn *db = open_database();
@@ -521,12 +522,12 @@ char *storage_take_questions_json(const char *topic, int limit) {
     if (ok) {
         r = PQexecParams(db,
             "WITH picked AS ("
-            " SELECT id FROM quiz_question_bank WHERE topic=$1 AND used_at IS NULL "
+            " SELECT id FROM quiz_question_bank WHERE topic=$1 "
             " ORDER BY random() LIMIT $2::int FOR UPDATE SKIP LOCKED"
-            "), claimed AS ("
-            " UPDATE quiz_question_bank q SET used_at=NOW() FROM picked p "
+            "), removed AS ("
+            " DELETE FROM quiz_question_bank q USING picked p "
             " WHERE q.id=p.id RETURNING q.question"
-            ") SELECT COALESCE(jsonb_agg(question),'[]'::jsonb)::text FROM claimed",
+            ") SELECT COALESCE(jsonb_agg(question),'[]'::jsonb)::text FROM removed",
             2, NULL, values, NULL, NULL, 0);
         ok = r && PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1;
         if (ok) copy = strdup(PQgetvalue(r, 0, 0));
