@@ -10,6 +10,7 @@ int storage_append_review_json(const char *json);
 int storage_append_history_json(const char *json);
 int storage_add_questions_json(const char *topic, const char *questions_json);
 int storage_add_questions_count_json(const char *topic, const char *questions_json);
+int storage_question_refill_debt(const char *topic);
 int storage_add_direct_questions_json(const char *topic, const char *questions_json);
 char *storage_take_direct_questions_json(const char *topic, int limit);
 char *storage_add_claim_questions_json(const char *topic, const char *questions_json);
