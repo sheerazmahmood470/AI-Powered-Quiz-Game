@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <libpq-fe.h>
+#include <cjson/cJSON.h>
 #include "storage.h"
 
 #define MAX_SEED_BYTES 10000000
