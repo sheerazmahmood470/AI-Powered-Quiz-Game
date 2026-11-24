@@ -18,10 +18,6 @@ typedef struct {
     size_t len;
 } Buffer;
 
-/* Providers with invalid credentials or unusable responses are skipped for
-   the rest of this server process instead of delaying every later quiz. */
-static int provider_disabled[4] = {0, 0, 0, 0};
-
 /* ================= STRING VALIDATION ================= */
 
 static int has_text(const char *s) {
@@ -355,7 +351,7 @@ static char *create_request_body(const char *prompt) {
     if (!generation_config ||
         !cJSON_AddStringToObject(generation_config, "responseMimeType", "application/json") ||
         !cJSON_AddNumberToObject(generation_config, "temperature", 0.65) ||
-        !cJSON_AddNumberToObject(generation_config, "maxOutputTokens", 8192)) {
+        !cJSON_AddNumberToObject(generation_config, "maxOutputTokens", 4096)) {
         cJSON_Delete(request);
         return NULL;
     }
@@ -390,14 +386,17 @@ static int parse_questions_text(
     if (!quiz) return 0;
 
     cJSON *questions = cJSON_GetObjectItemCaseSensitive(quiz, "questions");
-    if (!cJSON_IsArray(questions) ||
-        cJSON_GetArraySize(questions) != task->count) {
+    int returned_count = cJSON_GetArraySize(questions);
+    if (!cJSON_IsArray(questions) || returned_count <= 0 ||
+        returned_count > MAX_QUESTIONS) {
         cJSON_Delete(quiz);
         return 0;
     }
 
+    /* Accept a valid partial response; remaining slots are filled by the
+       next configured provider instead of discarding this provider's work. */
     int accepted = 0;
-    for (int i = 0; i < task->count; i++) {
+    for (int i = 0; i < returned_count; i++) {
         Question candidate_question;
         if (!copy_json_question(cJSON_GetArrayItem(questions, i), &candidate_question)) continue;
         if (duplicate_question(&candidate_question, task->excluded, task->excluded_count)) continue;
@@ -458,7 +457,7 @@ static char *create_compatible_request_body(const char *prompt, int provider) {
         cJSON_AddStringToObject(message, "role", "user");
         cJSON_AddStringToObject(message, "content", prompt);
         cJSON_AddItemToArray(messages, message);
-        cJSON_AddNumberToObject(request, "max_tokens", 8192);
+        cJSON_AddNumberToObject(request, "max_tokens", 4096);
         cJSON_AddNumberToObject(request, "temperature", 0.65);
     } else {
         cJSON_AddStringToObject(request, "model",
@@ -493,10 +492,6 @@ static int call_ai_provider(
     AiTask *task
 ) {
     if (!api_key || !api_key[0] || !prompt || !task) return 0;
-    if (provider >= 1 && provider <= 3 && provider_disabled[provider]) {
-        fprintf(stderr, "[AI] Provider %d is disabled for this process after an earlier configuration/response failure.\n", provider);
-        return 0;
-    }
 
     char url[1024];
     char auth_header[4096];
@@ -565,9 +560,11 @@ static int call_ai_provider(
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(body));
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-    /* Keep a slow/empty provider from holding a quiz-start request for 35 seconds. */
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 6L);
+    /* Bound slow reserve providers so one stalled endpoint cannot hold
+       quiz start for 30+ seconds. Give the primary model a little more time. */
+    long provider_timeout = provider == 3 ? 6L : (provider == 1 ? 9L : 8L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, provider_timeout);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
     CURLcode result = curl_easy_perform(curl);
@@ -581,16 +578,14 @@ static int call_ai_provider(
         accepted = parse_provider_response(response.data, provider, task);
         if (accepted <= 0) {
             fprintf(stderr, "[AI] Provider %d returned HTTP 200, but its response contained no valid questions.\n", provider);
-            /* OpenRouter has returned an empty content body; avoid repeating
-               the same unusable route for every remaining batch attempt. */
-            if (provider == 3) provider_disabled[provider] = 1;
+            /* Do not permanently disable a provider: a transient empty
+               response must not remove it from later quiz requests. */
         }
     } else if (response.data) {
         fprintf(stderr, "[AI] Provider %d returned HTTP %ld: %.500s\n",
             provider, status, response.data);
         if ((status == 401 || status == 403) && provider >= 1 && provider <= 3) {
-            provider_disabled[provider] = 1;
-            fprintf(stderr, "[AI] Provider %d disabled for this process because authentication was rejected. Check its Render environment variables.\n", provider);
+            fprintf(stderr, "[AI] Provider %d authentication was rejected. This provider will be skipped for this request only; check its Render environment variables.\n", provider);
         }
     } else if (result != CURLE_OK) {
         fprintf(stderr, "[AI] Provider %d request failed: %s\n",
@@ -641,15 +636,18 @@ void *generate_questions(void *arg) {
         const char *name;
         const char *key;
     } providers[] = {
-        /* Try the second Gemini key immediately after a primary outage. */
         {0, "Gemini primary", gemini_primary},
-        {0, "Gemini final fallback", gemini_last},
         {1, "Groq", groq_key},
         {2, "Cloudflare Workers AI", cloudflare_key},
-        {3, "OpenRouter", openrouter_key}
+        {3, "OpenRouter", openrouter_key},
+        {0, "Gemini final fallback", gemini_last}
     };
 
-    for (size_t i = 0; i < sizeof(providers) / sizeof(providers[0]); i++) {
+    /* Each provider gets its own response buffer. Keep valid questions from
+       every successful provider and continue only until the requested batch
+       is full. A partial/invalid response no longer blocks the other reserves. */
+    for (size_t i = 0; i < sizeof(providers) / sizeof(providers[0]) &&
+         task->generated_count < task->count; i++) {
         if (!providers[i].key || !providers[i].key[0]) {
             fprintf(stderr, "[AI] %s is not configured; skipping.\n", providers[i].name);
             continue;
@@ -659,23 +657,44 @@ void *generate_questions(void *arg) {
             continue;
         }
 
-        fprintf(stderr, "[AI] Trying %s (%zu/5).\n", providers[i].name, i + 1);
+        AiTask provider_task;
+        memset(&provider_task, 0, sizeof(provider_task));
+        snprintf(provider_task.topic, sizeof(provider_task.topic), "%s", task->topic);
+        provider_task.count = task->count - task->generated_count;
+        provider_task.excluded_count = task->excluded_count;
+        for (int j = 0; j < task->excluded_count; j++)
+            provider_task.excluded[j] = task->excluded[j];
+
+        fprintf(stderr, "[AI] Trying %s (%zu/5), need %d question(s).\n",
+            providers[i].name, i + 1, provider_task.count);
+
         if (call_ai_provider(providers[i].provider, providers[i].key,
                 providers[i].provider == 2 ? cloudflare_account : NULL,
-                prompt, task)) {
-            task->success = 1;
-            fprintf(stderr, "[AI] %s succeeded with %d questions.\n",
-                providers[i].name, task->generated_count);
-            return NULL;
+                prompt, &provider_task)) {
+            int added = 0;
+            for (int j = 0; j < provider_task.generated_count &&
+                 task->generated_count < task->count; j++) {
+                Question *candidate = &provider_task.generated[j];
+                if (duplicate_question(candidate, task->excluded, task->excluded_count) ||
+                    duplicate_question(candidate, task->generated, task->generated_count))
+                    continue;
+                task->generated[task->generated_count++] = *candidate;
+                added++;
+            }
+            fprintf(stderr, "[AI] %s supplied %d unique question(s); total %d/%d.\n",
+                providers[i].name, added, task->generated_count, task->count);
+        } else {
+            fprintf(stderr, "[AI] %s failed or returned no valid questions; trying next provider.\n",
+                providers[i].name);
         }
-
-        task->success = 0;
-        task->generated_count = 0;
-        memset(task->generated, 0, sizeof(task->generated));
-        fprintf(stderr, "[AI] %s failed validation or was unavailable; moving to next provider.\n",
-            providers[i].name);
     }
 
-    fprintf(stderr, "[AI] All configured AI providers failed.\n");
+    task->success = task->generated_count > 0;
+    if (task->success) {
+        fprintf(stderr, "[AI] Provider chain collected %d/%d question(s).\n",
+            task->generated_count, task->count);
+    } else {
+        fprintf(stderr, "[AI] All configured AI providers failed.\n");
+    }
     return NULL;
 }
