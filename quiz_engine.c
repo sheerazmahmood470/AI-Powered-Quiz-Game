@@ -215,63 +215,77 @@ static void *question_bank_refill_worker(void *argument) {
     QuestionRefillArgs args = *(QuestionRefillArgs *)argument;
     free(argument);
     int topic_index = args.topic_index;
-    int target = args.refill_count;
-    Question attempted[MAX_QUESTIONS];
-    memset(attempted, 0, sizeof(attempted));
-    int attempted_count = 0;
-    int inserted_total = 0;
 
-    fprintf(stderr, "[QUESTION BANK] Background Neon-only refill started for %s; target=%d.\n",
-            field_names[topic_index], target);
+    fprintf(stderr, "[QUESTION BANK] Background Neon-only refill started for %s.\n",
+            field_names[topic_index]);
 
-    /* Each round invokes the complete five-provider fallback chain.
-       Retry only the remaining shortage; never block the quiz request. */
-    for (int attempt = 1; attempt <= 5 && inserted_total < target; attempt++) {
-        AiTask task;
-        memset(&task, 0, sizeof(task));
-        snprintf(task.topic, sizeof(task.topic), "%s", field_names[topic_index]);
-        task.count = target - inserted_total;
-        task.excluded_count = attempted_count < 8 ? attempted_count : 8;
-        for (int i = 0; i < task.excluded_count; i++)
-            task.excluded[i] = attempted[i];
-
-        generate_questions(&task);
-        if (!task.success || task.generated_count <= 0) {
-            fprintf(stderr, "[QUESTION BANK] %s refill attempt %d returned no valid questions.\n",
-                    field_names[topic_index], attempt);
-            continue;
+    for (;;) {
+        int debt = storage_question_refill_debt(field_names[topic_index]);
+        if (debt <= 0) {
+            pthread_mutex_lock(&bank_refill_mutex);
+            /* Recheck while holding the same lock used by the scheduler so
+               a concurrent quiz cannot leave an unserviced refill request. */
+            debt = storage_question_refill_debt(field_names[topic_index]);
+            if (debt <= 0) {
+                bank_refill_active[topic_index] = 0;
+                pthread_mutex_unlock(&bank_refill_mutex);
+                break;
+            }
+            pthread_mutex_unlock(&bank_refill_mutex);
         }
 
-        int batch_count = task.generated_count;
-        if (batch_count > target - inserted_total)
-            batch_count = target - inserted_total;
+        int target = debt > MAX_QUESTIONS ? MAX_QUESTIONS : debt;
+        Question attempted[MAX_QUESTIONS];
+        memset(attempted, 0, sizeof(attempted));
+        int attempted_count = 0;
+        int inserted_total = 0;
 
-        /* Remember attempted questions so a later retry asks for different ones. */
-        for (int i = 0; i < batch_count && attempted_count < MAX_QUESTIONS; i++)
-            attempted[attempted_count++] = task.generated[i];
+        for (int attempt = 1; attempt <= 5 && inserted_total < target; attempt++) {
+            AiTask task;
+            memset(&task, 0, sizeof(task));
+            snprintf(task.topic, sizeof(task.topic), "%s", field_names[topic_index]);
+            task.count = target - inserted_total;
+            task.excluded_count = attempted_count < 8 ? attempted_count : 8;
+            for (int i = 0; i < task.excluded_count; i++)
+                task.excluded[i] = attempted[i];
 
-        char *json = questions_to_json_array(task.generated, batch_count);
-        int inserted = json
-            ? storage_add_questions_count_json(field_names[topic_index], json) : 0;
-        free(json);
-        if (inserted > 0) inserted_total += inserted;
+            generate_questions(&task);
+            if (!task.success || task.generated_count <= 0) {
+                fprintf(stderr, "[QUESTION BANK] %s refill attempt %d returned no valid questions.\n",
+                        field_names[topic_index], attempt);
+                continue;
+            }
 
-        fprintf(stderr, "[QUESTION BANK] %s attempt %d inserted %d new Neon question(s); progress %d/%d.\n",
-                field_names[topic_index], attempt, inserted, inserted_total, target);
-        if (inserted == 0) continue;
+            int batch_count = task.generated_count;
+            if (batch_count > target - inserted_total)
+                batch_count = target - inserted_total;
+
+            for (int i = 0; i < batch_count && attempted_count < MAX_QUESTIONS; i++)
+                attempted[attempted_count++] = task.generated[i];
+
+            char *json = questions_to_json_array(task.generated, batch_count);
+            int inserted = json
+                ? storage_add_questions_count_json(field_names[topic_index], json) : 0;
+            free(json);
+            if (inserted > 0) inserted_total += inserted;
+
+            fprintf(stderr, "[QUESTION BANK] %s attempt %d inserted %d new Neon question(s); progress %d/%d.\n",
+                    field_names[topic_index], attempt, inserted, inserted_total, target);
+        }
+
+        int remaining = storage_question_refill_debt(field_names[topic_index]);
+        if (remaining < 0 || remaining > 0) {
+            fprintf(stderr, "[QUESTION BANK] %s refill remains pending (%d question(s)); a later quiz will retry.\n",
+                    field_names[topic_index], remaining);
+            pthread_mutex_lock(&bank_refill_mutex);
+            bank_refill_active[topic_index] = 0;
+            pthread_mutex_unlock(&bank_refill_mutex);
+            break;
+        }
+        fprintf(stderr, "[QUESTION BANK] %s refill chunk complete: %d replacement(s) inserted.\n",
+                field_names[topic_index], inserted_total);
+        /* Loop for additional debt accumulated while this chunk was running. */
     }
-
-    if (inserted_total < target) {
-        fprintf(stderr, "[QUESTION BANK] %s refill incomplete: %d/%d inserted. Remaining shortage will be retried after a later quiz.\n",
-                field_names[topic_index], inserted_total, target);
-    } else {
-        fprintf(stderr, "[QUESTION BANK] %s refill complete: %d/%d new questions saved in Neon.\n",
-                field_names[topic_index], inserted_total, target);
-    }
-
-    pthread_mutex_lock(&bank_refill_mutex);
-    bank_refill_active[topic_index] = 0;
-    pthread_mutex_unlock(&bank_refill_mutex);
     return NULL;
 }
 
@@ -282,7 +296,7 @@ static void schedule_question_bank_refill(int topic_index, int refill_count) {
     pthread_mutex_lock(&bank_refill_mutex);
     if (bank_refill_active[topic_index]) {
         pthread_mutex_unlock(&bank_refill_mutex);
-        return;
+        return; /* Neon already holds the exact pending count. */
     }
     bank_refill_active[topic_index] = 1;
     pthread_mutex_unlock(&bank_refill_mutex);
