@@ -508,3 +508,42 @@ int storage_mark_questions_used_json(const char *topic, const char *questions_js
     PQfinish(db);
     return ok;
 }
+
+/* Insert only never-before-seen questions and claim them in the same
+   transaction. This prevents a generated question from being repeated in
+   another quiz, including when multiple server instances run concurrently. */
+char *storage_add_claim_questions_json(const char *topic, const char *questions_json) {
+    if (!storage_is_configured() || !topic || !questions_json) return NULL;
+    PGconn *db = open_database();
+    if (!db) return NULL;
+    const char *values[2] = { topic, questions_json };
+    PGresult *r = PQexec(db, "BEGIN");
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
+    char *copy = NULL;
+    if (ok) {
+        r = PQexecParams(db,
+            "WITH inserted AS ("
+            " INSERT INTO quiz_question_bank(topic,question_hash,question,used_at) "
+            " SELECT $1,md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g'))),item,NOW() "
+            " FROM jsonb_array_elements($2::jsonb) AS item "
+            " WHERE jsonb_typeof(item)='object' AND length(trim(COALESCE(item->>'question','')))>0 "
+            " ON CONFLICT(topic,question_hash) DO NOTHING RETURNING question"
+            ") SELECT COALESCE(jsonb_agg(question),'[]'::jsonb)::text FROM inserted",
+            2, NULL, values, NULL, NULL, 0);
+        ok = r && PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1;
+        if (ok) copy = strdup(PQgetvalue(r, 0, 0));
+        if (r) PQclear(r);
+    }
+    if (ok) {
+        r = PQexec(db, "COMMIT");
+        ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+        if (r) PQclear(r);
+    } else {
+        r = PQexec(db, "ROLLBACK");
+        if (r) PQclear(r);
+    }
+    PQfinish(db);
+    if (!ok) { free(copy); return NULL; }
+    return copy;
+}
