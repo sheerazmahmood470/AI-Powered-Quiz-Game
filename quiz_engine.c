@@ -863,10 +863,15 @@ int quiz_engine_start(
             free(stored);
         }
 
-        /* Refill this exact topic in the background by the number consumed.
-           The quiz never waits for any external AI provider. */
-        if (selected_count > 0)
-            schedule_question_bank_refill(topic_index, selected_count);
+        /* The atomic Neon delete has already recorded the exact replacement
+           debt. Schedule from that durable count, not the parsed quiz count:
+           even malformed legacy rows that were removed must be replaced. */
+        int refill_debt = storage_question_refill_debt(field_names[topic_index]);
+        if (refill_debt > 0) {
+            int scheduled_count = refill_debt > MAX_QUESTIONS
+                ? MAX_QUESTIONS : refill_debt;
+            schedule_question_bank_refill(topic_index, scheduled_count);
+        }
 
         /* Used questions stay retired; never recycle them into the active pool. */
         if (selected_count != question_count) {
