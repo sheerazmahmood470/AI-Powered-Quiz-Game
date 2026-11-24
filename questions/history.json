@@ -1,0 +1,169 @@
+{
+  "questions": [
+    {
+      "question": "Which ancient civilization developed cuneiform writing in Mesopotamia?",
+      "options": [
+        "Sumerians",
+        "Romans",
+        "Aztecs",
+        "Phoenicians"
+      ],
+      "correct_option": "A",
+      "explanation": "Sumerians in southern Mesopotamia developed one of the earliest known writing systems."
+    },
+    {
+      "question": "Which river was central to the development of ancient Egyptian civilization?",
+      "options": [
+        "Tigris",
+        "Nile",
+        "Indus",
+        "Yellow River"
+      ],
+      "correct_option": "B",
+      "explanation": "The Nile's regular floods supported agriculture and settlement in ancient Egypt."
+    },
+    {
+      "question": "Who was the first emperor of a unified China?",
+      "options": [
+        "Liu Bang",
+        "Qin Shi Huang",
+        "Kublai Khan",
+        "Sun Yat-sen"
+      ],
+      "correct_option": "B",
+      "explanation": "Qin Shi Huang unified the warring states and became China's first emperor in 221 BCE."
+    },
+    {
+      "question": "Which city-state is commonly associated with the development of direct democracy in ancient Greece?",
+      "options": [
+        "Sparta",
+        "Athens",
+        "Corinth",
+        "Thebes"
+      ],
+      "correct_option": "B",
+      "explanation": "Athens developed an early form of direct democracy for eligible male citizens."
+    },
+    {
+      "question": "Which empire built an extensive road network connecting much of the Mediterranean world?",
+      "options": [
+        "Roman Empire",
+        "Mali Empire",
+        "Mongol Empire",
+        "Inca Empire"
+      ],
+      "correct_option": "A",
+      "explanation": "Roman roads supported administration, trade, and military movement across the empire."
+    },
+    {
+      "question": "The Magna Carta was sealed in England in which year?",
+      "options": [
+        "1066",
+        "1215",
+        "1492",
+        "1649"
+      ],
+      "correct_option": "B",
+      "explanation": "King John sealed the Magna Carta in 1215 amid conflict with English barons."
+    },
+    {
+      "question": "Which event is traditionally used to mark the beginning of the French Revolution?",
+      "options": [
+        "Storming of the Bastille",
+        "Battle of Waterloo",
+        "Congress of Vienna",
+        "Reign of Elizabeth I"
+      ],
+      "correct_option": "A",
+      "explanation": "The storming of the Bastille on 14 July 1789 became a symbol of the revolution."
+    },
+    {
+      "question": "Who led the Haitian Revolution and became a key figure in the struggle against French colonial rule?",
+      "options": [
+        "Toussaint Louverture",
+        "Simón Bolívar",
+        "José de San Martín",
+        "Miguel Hidalgo"
+      ],
+      "correct_option": "A",
+      "explanation": "Toussaint Louverture was a central leader of the Haitian Revolution."
+    },
+    {
+      "question": "Which trade route connected East Asia with the Mediterranean through a network of land and sea routes?",
+      "options": [
+        "Amber Road",
+        "Silk Road",
+        "Appian Way",
+        "Royal Road of Persia only"
+      ],
+      "correct_option": "B",
+      "explanation": "The Silk Road linked regions of Asia, the Middle East, and Europe through trade networks."
+    },
+    {
+      "question": "Which invention is Johannes Gutenberg most closely associated with in European history?",
+      "options": [
+        "The steam engine",
+        "The movable-type printing press",
+        "The telescope",
+        "The spinning jenny"
+      ],
+      "correct_option": "B",
+      "explanation": "Gutenberg's press helped expand the production and circulation of printed books in Europe."
+    },
+    {
+      "question": "Which battle in 1815 ended Napoleon Bonaparte's rule?",
+      "options": [
+        "Battle of Hastings",
+        "Battle of Waterloo",
+        "Battle of Trafalgar",
+        "Battle of Austerlitz"
+      ],
+      "correct_option": "B",
+      "explanation": "Napoleon was defeated at Waterloo by allied forces in June 1815."
+    },
+    {
+      "question": "Which conference after the Second World War established the framework for the United Nations?",
+      "options": [
+        "Yalta Conference",
+        "Berlin Conference of 1884",
+        "Congress of Berlin",
+        "Treaty of Tordesillas"
+      ],
+      "correct_option": "A",
+      "explanation": "The 1945 Yalta Conference discussed plans for the formation of the United Nations."
+    },
+    {
+      "question": "In which year did the First World War begin?",
+      "options": [
+        "1905",
+        "1914",
+        "1918",
+        "1939"
+      ],
+      "correct_option": "B",
+      "explanation": "The First World War began in 1914 following the July Crisis."
+    },
+    {
+      "question": "Which movement in British India was launched in 1942 demanding an end to British rule?",
+      "options": [
+        "Swadeshi Movement",
+        "Quit India Movement",
+        "Khilafat Movement",
+        "Aligarh Movement"
+      ],
+      "correct_option": "B",
+      "explanation": "The Indian National Congress launched the Quit India Movement in August 1942."
+    },
+    {
+      "question": "In which year did Pakistan become independent?",
+      "options": [
+        "1930",
+        "1940",
+        "1947",
+        "1956"
+      ],
+      "correct_option": "C",
+      "explanation": "Pakistan became independent on 14 August 1947."
+    }
+  ]
+}
