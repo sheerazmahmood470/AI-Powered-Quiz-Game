@@ -207,6 +207,35 @@ static int parse_questions_json(const char *json, Question *destination, int cap
 static pthread_mutex_t bank_refill_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int bank_refill_active[5];
 
+/* Questions generated in the background and reserved for direct delivery
+   to upcoming quizzes. Their Neon rows are marked used while they are queued. */
+static Question direct_question_pool[5][MAX_AI_QUESTION_HISTORY];
+static int direct_question_pool_count[5];
+static pthread_mutex_t direct_question_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int take_direct_questions(int topic_index, Question *out, int wanted) {
+    if (topic_index < 0 || topic_index >= 5 || !out || wanted <= 0) return 0;
+    pthread_mutex_lock(&direct_question_pool_mutex);
+    int take = direct_question_pool_count[topic_index] < wanted
+        ? direct_question_pool_count[topic_index] : wanted;
+    if (take > 0) {
+        memcpy(out, direct_question_pool[topic_index], (size_t)take * sizeof(Question));
+        memmove(direct_question_pool[topic_index],
+                direct_question_pool[topic_index] + take,
+                (size_t)(direct_question_pool_count[topic_index] - take) * sizeof(Question));
+        direct_question_pool_count[topic_index] -= take;
+    }
+    pthread_mutex_unlock(&direct_question_pool_mutex);
+    return take;
+}
+
+static void clear_direct_questions(int topic_index) {
+    if (topic_index < 0 || topic_index >= 5) return;
+    pthread_mutex_lock(&direct_question_pool_mutex);
+    direct_question_pool_count[topic_index] = 0;
+    pthread_mutex_unlock(&direct_question_pool_mutex);
+}
+
 static void *question_bank_refill_worker(void *argument) {
     int topic_index = *(int *)argument;
     free(argument);
@@ -216,25 +245,58 @@ static void *question_bank_refill_worker(void *argument) {
     snprintf(task.topic, sizeof(task.topic), "%s", field_names[topic_index]);
     task.count = MAX_QUESTIONS;
 
-    int before = storage_question_bank_count(field_names[topic_index], 0);
-    if (before >= 0 && before < QUESTION_BANK_TARGET) {
-        fprintf(stderr, "[QUESTION BANK] Background refill started for %s (%d/%d).\n",
-                field_names[topic_index], before, QUESTION_BANK_TARGET);
-        generate_questions(&task);
-        if (task.success && task.generated_count > 0) {
-            char *json = questions_to_json_array(task.generated, task.generated_count);
-            if (json) {
-                int saved = storage_add_questions_json(field_names[topic_index], json);
-                free(json);
-                int after = storage_question_bank_count(field_names[topic_index], 0);
-                fprintf(stderr, "[QUESTION BANK] Background refill %s; %s now has %d/%d unique questions.\n",
-                        saved ? "saved" : "could not save", field_names[topic_index],
-                        after, QUESTION_BANK_TARGET);
+    int before = storage_question_bank_count(field_names[topic_index], 1);
+    fprintf(stderr, "[QUESTION BANK] Background API refill started for %s (%d unused).\\n",
+            field_names[topic_index], before);
+    generate_questions(&task);
+    if (task.success && task.generated_count > 0) {
+        char *json = questions_to_json_array(task.generated, task.generated_count);
+        if (json) {
+            int saved = storage_add_questions_json(field_names[topic_index], json);
+            free(json);
+            if (saved) {
+                /* Half of each successful batch is reserved for direct delivery;
+                   the other half remains unused and ready in Neon. */
+                int direct_wanted = task.generated_count / 2;
+                pthread_mutex_lock(&direct_question_pool_mutex);
+                int room = MAX_AI_QUESTION_HISTORY - direct_question_pool_count[topic_index];
+                if (direct_wanted > room) direct_wanted = room;
+                pthread_mutex_unlock(&direct_question_pool_mutex);
+
+                if (direct_wanted > 0) {
+                    char *reserved = storage_take_questions_json(
+                        field_names[topic_index], direct_wanted);
+                    if (reserved) {
+                        Question claimed[WEB_MAX_QUESTIONS];
+                        memset(claimed, 0, sizeof(claimed));
+                        int claimed_count = parse_questions_json(
+                            reserved, claimed, direct_wanted);
+                        free(reserved);
+                        pthread_mutex_lock(&direct_question_pool_mutex);
+                        for (int i = 0; i < claimed_count &&
+                             direct_question_pool_count[topic_index] < MAX_AI_QUESTION_HISTORY; i++) {
+                            if (!question_exists(&claimed[i],
+                                    direct_question_pool[topic_index],
+                                    direct_question_pool_count[topic_index])) {
+                                direct_question_pool[topic_index]
+                                    [direct_question_pool_count[topic_index]++] = claimed[i];
+                            }
+                        }
+                        pthread_mutex_unlock(&direct_question_pool_mutex);
+                    }
+                }
             }
-        } else {
-            fprintf(stderr, "[QUESTION BANK] Background refill providers returned no valid questions for %s. Existing bank remains available.\n",
-                    field_names[topic_index]);
+            int after = storage_question_bank_count(field_names[topic_index], 1);
+            pthread_mutex_lock(&direct_question_pool_mutex);
+            int ready = direct_question_pool_count[topic_index];
+            pthread_mutex_unlock(&direct_question_pool_mutex);
+            fprintf(stderr, "[QUESTION BANK] Background refill %s; %s has %d unused Neon questions and %d direct-ready questions.\\n",
+                    saved ? "saved" : "could not save", field_names[topic_index],
+                    after, ready);
         }
+    } else {
+        fprintf(stderr, "[QUESTION BANK] Background providers returned no valid questions for %s.\\n",
+                field_names[topic_index]);
     }
 
     pthread_mutex_lock(&bank_refill_mutex);
@@ -245,8 +307,8 @@ static void *question_bank_refill_worker(void *argument) {
 
 static void schedule_question_bank_refill(int topic_index) {
     if (!storage_is_configured() || topic_index < 0 || topic_index >= 5) return;
-    int count = storage_question_bank_count(field_names[topic_index], 0);
-    if (count < 0 || count >= QUESTION_BANK_TARGET) return;
+    int count = storage_question_bank_count(field_names[topic_index], 1);
+    if (count < 0) return;
 
     pthread_mutex_lock(&bank_refill_mutex);
     if (bank_refill_active[topic_index]) {
@@ -810,10 +872,16 @@ int quiz_engine_start(
     if (storage_is_configured()) {
         /* Claim questions from the dedicated Neon question bank. History is
            stored in quiz_history and is never read or written by this path. */
-        int selected_count = 0;
-        char *stored = storage_take_questions_json(field_names[topic_index], question_count);
+        /* 50/50 target: pre-generated background API questions plus Neon.
+           If the direct queue is not ready yet, Neon fills the quiz without
+           waiting for a provider request. */
+        int selected_count = take_direct_questions(
+            topic_index, fresh_batch, question_count / 2);
+        int neon_wanted = question_count - selected_count;
+        char *stored = storage_take_questions_json(field_names[topic_index], neon_wanted);
         if (stored) {
-            selected_count = parse_questions_json(stored, fresh_batch, question_count);
+            selected_count += parse_questions_json(
+                stored, fresh_batch + selected_count, question_count - selected_count);
             free(stored);
         }
 
@@ -836,43 +904,28 @@ int quiz_engine_start(
             }
         }
 
-        /* Refill only the shortage. New questions are inserted and reserved
-           atomically, and the database unique index rejects past questions. */
-        for (int attempt = 1; selected_count < question_count && attempt <= 5; attempt++) {
-            AiTask task;
-            memset(&task, 0, sizeof(task));
-            snprintf(task.topic, sizeof(task.topic), "%s", field_names[topic_index]);
-            task.count = question_count - selected_count;
-            for (int i = 0; i < selected_count && task.excluded_count < 8; i++)
-                task.excluded[task.excluded_count++] = fresh_batch[i];
-
-            fprintf(stderr, "[QUESTION BANK] %s has %d/%d questions; requesting %d new MCQs.\n",
-                    field_names[topic_index], selected_count, question_count, task.count);
-            generate_questions(&task);
-            if (!task.success || task.generated_count <= 0) break;
-
-            char *generated_json = questions_to_json_array(task.generated, task.generated_count);
-            if (!generated_json) break;
-            char *new_json = storage_add_claim_questions_json(field_names[topic_index], generated_json);
-            free(generated_json);
-            if (!new_json) break;
-
-            Question newly_claimed[WEB_MAX_QUESTIONS];
-            memset(newly_claimed, 0, sizeof(newly_claimed));
-            int added = parse_questions_json(new_json, newly_claimed, WEB_MAX_QUESTIONS);
-            free(new_json);
-            for (int i = 0; i < added && selected_count < question_count; i++) {
-                if (!question_exists(&newly_claimed[i], fresh_batch, selected_count))
-                    fresh_batch[selected_count++] = newly_claimed[i];
+        /* API work is exclusively background: never block quiz start on AI. */
+        if (selected_count < question_count &&
+            storage_question_bank_count(field_names[topic_index], 1) == 0 &&
+            storage_reset_question_usage(field_names[topic_index])) {
+            clear_direct_questions(topic_index);
+            char *selected_json = questions_to_json_array(fresh_batch, selected_count);
+            if (selected_json) {
+                storage_mark_questions_used_json(field_names[topic_index], selected_json);
+                free(selected_json);
             }
-            fprintf(stderr, "[QUESTION BANK] Added %d never-used question(s); quiz has %d/%d.\n",
-                    added, selected_count, question_count);
-            if (added == 0) continue;
+            char *more = storage_take_questions_json(
+                field_names[topic_index], question_count - selected_count);
+            if (more) {
+                selected_count += parse_questions_json(
+                    more, fresh_batch + selected_count, question_count - selected_count);
+                free(more);
+            }
         }
 
         if (selected_count != question_count) {
-            fprintf(stderr, "[QUESTION BANK] Not enough unique questions for %s (%d/%d). No partial or duplicate quiz will be started.\n",
-                    field_names[topic_index], selected_count, question_count);
+            fprintf(stderr, "[QUESTION BANK] Background refill is not ready; only %d/%d unique questions are available.\\n",
+                    selected_count, question_count);
             goto cleanup;
         }
         shuffle_questions(fresh_batch, question_count);
