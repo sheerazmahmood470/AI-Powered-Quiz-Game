@@ -120,7 +120,10 @@ int storage_init(void) {
         "CREATE INDEX IF NOT EXISTS quiz_question_bank_pick_idx ON quiz_question_bank(topic,used_at,id);"
         "CREATE TABLE IF NOT EXISTS quiz_question_archive("
         "topic TEXT NOT NULL,question_hash TEXT NOT NULL,retired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),"
-        "PRIMARY KEY(topic,question_hash))"
+        "PRIMARY KEY(topic,question_hash));"
+        "CREATE TABLE IF NOT EXISTS quiz_question_refill_debt("
+        "topic TEXT PRIMARY KEY,pending_count INTEGER NOT NULL DEFAULT 0 CHECK(pending_count>=0),"
+        "updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
 );
     int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
     if (r) PQclear(r);
@@ -436,21 +439,64 @@ int storage_add_questions_count_json(const char *topic, const char *questions_js
     PGconn *db = open_database();
     if (!db) return 0;
     const char *values[2] = { topic, questions_json };
-    PGresult *r = PQexecParams(db,
-        "INSERT INTO quiz_question_bank(topic,question_hash,question) "
-        "SELECT $1,md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g'))),item "
-        "FROM jsonb_array_elements($2::jsonb) AS item "
-        "WHERE jsonb_typeof(item)='object' AND length(trim(COALESCE(item->>'question','')))>0 "
-        "AND NOT EXISTS (SELECT 1 FROM quiz_question_archive a WHERE a.topic=$1 "
-        "AND a.question_hash=md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g')))) "
-        "ON CONFLICT(topic,question_hash) DO NOTHING",
-        2, NULL, values, NULL, NULL, 0);
+    PGresult *r = PQexec(db, "BEGIN");
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
     int inserted = 0;
-    if (r && PQresultStatus(r) == PGRES_COMMAND_OK)
-        inserted = atoi(PQcmdTuples(r));
+    if (ok) {
+        r = PQexecParams(db,
+            "INSERT INTO quiz_question_bank(topic,question_hash,question) "
+            "SELECT $1,md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g'))),item "
+            "FROM jsonb_array_elements($2::jsonb) AS item "
+            "WHERE jsonb_typeof(item)='object' AND length(trim(COALESCE(item->>'question','')))>0 "
+            "AND NOT EXISTS (SELECT 1 FROM quiz_question_archive a WHERE a.topic=$1 "
+            "AND a.question_hash=md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g')))) "
+            "ON CONFLICT(topic,question_hash) DO NOTHING",
+            2, NULL, values, NULL, NULL, 0);
+        ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+        if (ok) inserted = atoi(PQcmdTuples(r));
+        if (r) PQclear(r);
+    }
+    if (ok && inserted > 0) {
+        char inserted_text[16];
+        snprintf(inserted_text, sizeof(inserted_text), "%d", inserted);
+        const char *debt_values[2] = { topic, inserted_text };
+        r = PQexecParams(db,
+            "UPDATE quiz_question_refill_debt "
+            "SET pending_count=GREATEST(0,pending_count-$2::integer),updated_at=NOW() "
+            "WHERE topic=$1",
+            2, NULL, debt_values, NULL, NULL, 0);
+        ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+        if (r) PQclear(r);
+    }
+    if (ok) {
+        r = PQexec(db, "COMMIT");
+        ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+        if (r) PQclear(r);
+    } else {
+        r = PQexec(db, "ROLLBACK");
+        if (r) PQclear(r);
+    }
+    PQfinish(db);
+    return ok ? inserted : 0;
+}
+
+int storage_question_refill_debt(const char *topic) {
+    if (!storage_is_configured() || !topic) return -1;
+    PGconn *db = open_database();
+    if (!db) return -1;
+    const char *values[1] = { topic };
+    PGresult *r = PQexecParams(db,
+        "SELECT pending_count FROM quiz_question_refill_debt WHERE topic=$1",
+        1, NULL, values, NULL, NULL, 0);
+    int count = 0;
+    if (r && PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1)
+        count = atoi(PQgetvalue(r, 0, 0));
+    else if (!r || PQresultStatus(r) != PGRES_TUPLES_OK)
+        count = -1;
     if (r) PQclear(r);
     PQfinish(db);
-    return inserted;
+    return count;
 }
 
 /* Store API questions reserved for direct delivery to a future quiz. */
@@ -539,6 +585,10 @@ char *storage_take_questions_json(const char *topic, int limit) {
             " INSERT INTO quiz_question_archive(topic,question_hash) "
             " SELECT topic,question_hash FROM removed ON CONFLICT(topic,question_hash) DO NOTHING "
             " RETURNING question_hash"
+            "), debt AS ("
+            " INSERT INTO quiz_question_refill_debt(topic,pending_count,updated_at) "
+            " SELECT $1,count(*)::integer,NOW() FROM removed HAVING count(*)>0 "
+            " ON CONFLICT(topic) DO UPDATE SET pending_count=quiz_question_refill_debt.pending_count+EXCLUDED.pending_count,updated_at=NOW()"
             ") SELECT COALESCE(jsonb_agg(question),'[]'::jsonb)::text FROM removed",
             2, NULL, values, NULL, NULL, 0);
         ok = r && PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1;
