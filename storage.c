@@ -441,6 +441,8 @@ int storage_add_questions_count_json(const char *topic, const char *questions_js
         "SELECT $1,md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g'))),item "
         "FROM jsonb_array_elements($2::jsonb) AS item "
         "WHERE jsonb_typeof(item)='object' AND length(trim(COALESCE(item->>'question','')))>0 "
+        "AND NOT EXISTS (SELECT 1 FROM quiz_question_archive a WHERE a.topic=$1 "
+        "AND a.question_hash=md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g')))) "
         "ON CONFLICT(topic,question_hash) DO NOTHING",
         2, NULL, values, NULL, NULL, 0);
     int inserted = 0;
