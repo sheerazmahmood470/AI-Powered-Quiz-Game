@@ -478,3 +478,33 @@ int storage_question_bank_count(const char *topic, int unused_only) {
     return count;
 }
 
+
+int storage_reset_question_usage(const char *topic) {
+    if (!storage_is_configured() || !topic) return 0;
+    PGconn *db = open_database();
+    if (!db) return 0;
+    const char *values[1] = { topic };
+    PGresult *r = PQexecParams(db,
+        "UPDATE quiz_question_bank SET used_at=NULL WHERE topic=$1",
+        1, NULL, values, NULL, NULL, 0);
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
+    PQfinish(db);
+    return ok;
+}
+
+int storage_mark_questions_used_json(const char *topic, const char *questions_json) {
+    if (!storage_is_configured() || !topic || !questions_json) return 0;
+    PGconn *db = open_database();
+    if (!db) return 0;
+    const char *values[2] = { topic, questions_json };
+    PGresult *r = PQexecParams(db,
+        "UPDATE quiz_question_bank q SET used_at=NOW() "
+        "FROM jsonb_array_elements($2::jsonb) AS item "
+        "WHERE q.topic=$1 AND q.question_hash=md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g')))",
+        2, NULL, values, NULL, NULL, 0);
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
+    PQfinish(db);
+    return ok;
+}
