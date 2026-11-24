@@ -703,28 +703,58 @@ int quiz_engine_start(
         }
     }
 
-    /* Keep a rolling per-topic history (300 questions), shared by 10- and
-       15-question quizzes. This prevents repeats across many later attempts. */
-    if (!generate_fresh_batch(
-            topic_index, question_count,
-            previous_count ? previous_batch : NULL,
-            previous_count, fresh_batch)) {
-        fprintf(stderr, "[AI] Quiz cancelled: could not generate a complete fresh, non-repeating batch.\n");
-        goto cleanup;
+    /* Neon cache is a usable question bank, not only a no-repeat blacklist.
+       Consume cached questions first so quiz start does not wait for an AI call.
+       Rotate consumed questions to the end; newly generated questions refill it. */
+    int cached_count = previous_count < question_count ? previous_count : question_count;
+    if (cached_count > 0) {
+        memcpy(fresh_batch, previous_batch,
+               (size_t)cached_count * sizeof(Question));
+
+        if (previous_count > cached_count) {
+            Question consumed[WEB_MAX_QUESTIONS];
+            memcpy(consumed, previous_batch,
+                   (size_t)cached_count * sizeof(Question));
+            memmove(previous_batch, previous_batch + cached_count,
+                    (size_t)(previous_count - cached_count) * sizeof(Question));
+            memcpy(previous_batch + previous_count - cached_count, consumed,
+                   (size_t)cached_count * sizeof(Question));
+        }
+        fprintf(stderr, "[CACHE] Reusing %d stored %s question(s); AI needed for %d.\n",
+                cached_count, field_names[topic_index], question_count - cached_count);
     }
 
-    /* Append this completed batch to the per-topic rolling history.
-       Keep the newest 300 questions; remove only the oldest when full. */
+    int needed = question_count - cached_count;
     int retained_count = previous_count;
-    if (retained_count + question_count > MAX_AI_QUESTION_HISTORY) {
-        int drop_count = retained_count + question_count - MAX_AI_QUESTION_HISTORY;
-        memmove(previous_batch, previous_batch + drop_count,
-                (size_t)(retained_count - drop_count) * sizeof(Question));
-        retained_count -= drop_count;
+    if (needed > 0) {
+        Question newly_generated[WEB_MAX_QUESTIONS];
+        memset(newly_generated, 0, sizeof(newly_generated));
+
+        if (!generate_fresh_batch(
+                topic_index, needed,
+                previous_count ? previous_batch : NULL,
+                previous_count, newly_generated)) {
+            fprintf(stderr, "[AI] Quiz cancelled: cache supplied %d/%d questions and AI could not fill the remaining %d.\n",
+                    cached_count, question_count, needed);
+            goto cleanup;
+        }
+
+        memcpy(fresh_batch + cached_count, newly_generated,
+               (size_t)needed * sizeof(Question));
+
+        if (retained_count + needed > MAX_AI_QUESTION_HISTORY) {
+            int drop_count = retained_count + needed - MAX_AI_QUESTION_HISTORY;
+            memmove(previous_batch, previous_batch + drop_count,
+                    (size_t)(retained_count - drop_count) * sizeof(Question));
+            retained_count -= drop_count;
+        }
+        memcpy(previous_batch + retained_count, newly_generated,
+               (size_t)needed * sizeof(Question));
+        retained_count += needed;
     }
-    memcpy(previous_batch + retained_count, fresh_batch,
-           (size_t)question_count * sizeof(Question));
-    retained_count += question_count;
+
+    /* Shuffle only the quiz copy; keep the persistent bank's queue order. */
+    shuffle_questions(fresh_batch, question_count);
 
     memcpy(process_question_cache[topic_index], previous_batch,
            (size_t)retained_count * sizeof(Question));
