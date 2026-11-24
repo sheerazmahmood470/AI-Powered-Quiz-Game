@@ -1,53 +1,169 @@
 {
-	"questions":	[{
-			"question":	"What is the primary difference between malloc() and calloc() when allocating memory in C?",
-			"options":	["malloc() allocates memory on the stack while calloc() allocates on the heap.", "calloc() initializes all allocated bytes to zero, whereas malloc() leaves them uninitialized.", "malloc() requires a cast to the appropriate pointer type, but calloc() does not.", "calloc() allows dynamic resizing of the block, unlike malloc()."],
-			"correct_option":	"B",
-			"explanation":	"malloc() returns a pointer to uninitialized memory containing indeterminate garbage values. In contrast, calloc() automatically initializes every byte in the allocated block to zero."
-		}, {
-			"question":	"In the context of the C preprocessor, what is the main risk of using a macro like #define SQUARE(x) x * x instead of a standard function?",
-			"options":	["Macros cannot accept floating-point arguments.", "It causes a compilation error if x is not declared as a constant.", "Operator precedence issues can lead to unexpected results when expressions are passed as arguments.", "Macros are evaluated at runtime rather than compile time, slowing down execution."],
-			"correct_option":	"C",
-			"explanation":	"Because macro expansion is a direct text substitution, passing an expression like SQUARE(a + 1) expands to a + 1 * a + 1, which violates standard mathematical operator precedence."
-		}, {
-			"question":	"What does the 'volatile' keyword signal to the C compiler?",
-			"options":	["The variable's value is stored in a CPU register rather than RAM.", "The variable can be modified unexpectedly by external factors outside the program's control, preventing certain optimizations.", "The variable is read-only and attempts to modify it will trigger a segmentation fault.", "The variable is shared across multiple threads and requires an implicit mutex lock."],
-			"correct_option":	"B",
-			"explanation":	"Volatile tells the compiler that a variable's value may change at any time through hardware, interrupt handlers, or concurrent processes, disabling optimizations like caching the value in a register."
-		}, {
-			"question":	"Consider an array declared as int arr[5];. Which of the following expressions is strictly equivalent to arr[2]?",
-			"options":	["2[arr]", "*arr + 2", "&arr[2]", "arr++"],
-			"correct_option":	"A",
-			"explanation":	"In C, subscripting is commutative due to pointer arithmetic. The expression arr[i] is defined as *(arr + i), meaning 2[arr] translates to *(2 + arr), which evaluates to the exact same memory location as arr[2]."
-		}, {
-			"question":	"What is the output behavior if a function attempts to return the memory address of a local automatic variable?",
-			"options":	["The compiler automatically promotes the variable to static storage duration.", "It results in a guaranteed compile-time error.", "It causes undefined behavior because the stack frame is destroyed upon function exit.", "The value remains accessible safely as long as no other function is called."],
-			"correct_option":	"C",
-			"explanation":	"Local automatic variables reside on the stack. Returning their address yields a dangling pointer, as that stack memory becomes invalid and subject to overwriting as soon as the function returns."
-		}, {
-			"question":	"What is the purpose of the 'static' keyword when applied to a global variable within a single source file?",
-			"options":	["It makes the variable constant and immutable throughout the program.", "It restricts the variable's scope and linkage to the translation unit in which it is defined.", "It allocates the variable in read-only memory to save RAM.", "It forces the variable to be reinitialized every time the enclosing function is called."],
-			"correct_option":	"B",
-			"explanation":	"A static global variable has internal linkage, meaning its visibility is strictly limited to the source file (translation unit) where it is declared, preventing naming conflicts with other files."
-		}, {
-			"question":	"What happens during the execution of the statement: char *ptr = \"Hello\"; *ptr = 'J';?",
-			"options":	["The string literal is successfully modified to \"Jello\".", "A syntax error is flagged by the compiler.", "Undefined behavior occurs, typically resulting in a segmentation fault.", "The pointer ptr is reassigned to a new memory location."],
-			"correct_option":	"C",
-			"explanation":	"String literals are typically stored in read-only data segments of memory. Attempting to modify them through a pointer leads to undefined behavior, usually crashing the program with a segmentation fault."
-		}, {
-			"question":	"Why is it considered a best practice to check the return value of fopen() before attempting to use the file pointer?",
-			"options":	["fopen() automatically deletes the file if it already exists.", "If the file cannot be opened, fopen() returns NULL, and dereferencing it causes a crash.", "It resets the internal file position indicator to the end of the file.", "It is required to allocate sufficient buffer memory on the heap."],
-			"correct_option":	"B",
-			"explanation":	"If a file fails to open due to permissions, missing paths, or other errors, fopen() returns NULL. Failing to check this can lead to null pointer dereference and program termination."
-		}, {
-			"question":	"What does the sizeof operator return when applied to a dynamically allocated pointer rather than the array it points to?",
-			"options":	["The total number of bytes allocated in the heap block.", "The number of elements currently stored in the array.", "The size of the pointer data type itself, such as 4 or 8 bytes.", "Zero, because dynamic memory size cannot be determined at compile time."],
-			"correct_option":	"C",
-			"explanation":	"sizeof is a compile-time operator. When applied to a pointer variable, it evaluates to the size of the pointer itself on the target architecture, regardless of how many bytes were dynamically allocated."
-		}, {
-			"question":	"What is the primary purpose of the 'typedef' keyword in C?",
-			"options":	["To allocate new memory types dynamically.", "To create an alias or alternative name for an existing data type.", "To define macro templates for inline code replacement.", "To enforce strict type safety checks during compilation."],
-			"correct_option":	"B",
-			"explanation":	"typedef allows programmers to create a new identifier that represents an existing data type, improving code readability and simplifying complex declarations like pointers to function structures."
-		}]
+  "questions": [
+    {
+      "question": "What is the primary difference between malloc() and calloc() when allocating memory in C?",
+      "options": [
+        "malloc() allocates memory on the stack while calloc() allocates on the heap.",
+        "calloc() initializes all allocated bytes to zero, whereas malloc() leaves them uninitialized.",
+        "malloc() requires a cast to the appropriate pointer type, but calloc() does not.",
+        "calloc() allows dynamic resizing of the block, unlike malloc()."
+      ],
+      "correct_option": "B",
+      "explanation": "malloc() returns a pointer to uninitialized memory containing indeterminate garbage values. In contrast, calloc() automatically initializes every byte in the allocated block to zero."
+    },
+    {
+      "question": "In the context of the C preprocessor, what is the main risk of using a macro like #define SQUARE(x) x * x instead of a standard function?",
+      "options": [
+        "Macros cannot accept floating-point arguments.",
+        "It causes a compilation error if x is not declared as a constant.",
+        "Operator precedence issues can lead to unexpected results when expressions are passed as arguments.",
+        "Macros are evaluated at runtime rather than compile time, slowing down execution."
+      ],
+      "correct_option": "C",
+      "explanation": "Because macro expansion is a direct text substitution, passing an expression like SQUARE(a + 1) expands to a + 1 * a + 1, which violates standard mathematical operator precedence."
+    },
+    {
+      "question": "What does the 'volatile' keyword signal to the C compiler?",
+      "options": [
+        "The variable's value is stored in a CPU register rather than RAM.",
+        "The variable can be modified unexpectedly by external factors outside the program's control, preventing certain optimizations.",
+        "The variable is read-only and attempts to modify it will trigger a segmentation fault.",
+        "The variable is shared across multiple threads and requires an implicit mutex lock."
+      ],
+      "correct_option": "B",
+      "explanation": "Volatile tells the compiler that a variable's value may change at any time through hardware, interrupt handlers, or concurrent processes, disabling optimizations like caching the value in a register."
+    },
+    {
+      "question": "Consider an array declared as int arr[5];. Which of the following expressions is strictly equivalent to arr[2]?",
+      "options": [
+        "2[arr]",
+        "*arr + 2",
+        "&arr[2]",
+        "arr++"
+      ],
+      "correct_option": "A",
+      "explanation": "In C, subscripting is commutative due to pointer arithmetic. The expression arr[i] is defined as *(arr + i), meaning 2[arr] translates to *(2 + arr), which evaluates to the exact same memory location as arr[2]."
+    },
+    {
+      "question": "What is the output behavior if a function attempts to return the memory address of a local automatic variable?",
+      "options": [
+        "The compiler automatically promotes the variable to static storage duration.",
+        "It results in a guaranteed compile-time error.",
+        "It causes undefined behavior because the stack frame is destroyed upon function exit.",
+        "The value remains accessible safely as long as no other function is called."
+      ],
+      "correct_option": "C",
+      "explanation": "Local automatic variables reside on the stack. Returning their address yields a dangling pointer, as that stack memory becomes invalid and subject to overwriting as soon as the function returns."
+    },
+    {
+      "question": "What is the purpose of the 'static' keyword when applied to a global variable within a single source file?",
+      "options": [
+        "It makes the variable constant and immutable throughout the program.",
+        "It restricts the variable's scope and linkage to the translation unit in which it is defined.",
+        "It allocates the variable in read-only memory to save RAM.",
+        "It forces the variable to be reinitialized every time the enclosing function is called."
+      ],
+      "correct_option": "B",
+      "explanation": "A static global variable has internal linkage, meaning its visibility is strictly limited to the source file (translation unit) where it is declared, preventing naming conflicts with other files."
+    },
+    {
+      "question": "What happens during the execution of the statement: char *ptr = \"Hello\"; *ptr = 'J';?",
+      "options": [
+        "The string literal is successfully modified to \"Jello\".",
+        "A syntax error is flagged by the compiler.",
+        "Undefined behavior occurs, typically resulting in a segmentation fault.",
+        "The pointer ptr is reassigned to a new memory location."
+      ],
+      "correct_option": "C",
+      "explanation": "String literals are typically stored in read-only data segments of memory. Attempting to modify them through a pointer leads to undefined behavior, usually crashing the program with a segmentation fault."
+    },
+    {
+      "question": "Why is it considered a best practice to check the return value of fopen() before attempting to use the file pointer?",
+      "options": [
+        "fopen() automatically deletes the file if it already exists.",
+        "If the file cannot be opened, fopen() returns NULL, and dereferencing it causes a crash.",
+        "It resets the internal file position indicator to the end of the file.",
+        "It is required to allocate sufficient buffer memory on the heap."
+      ],
+      "correct_option": "B",
+      "explanation": "If a file fails to open due to permissions, missing paths, or other errors, fopen() returns NULL. Failing to check this can lead to null pointer dereference and program termination."
+    },
+    {
+      "question": "What does the sizeof operator return when applied to a dynamically allocated pointer rather than the array it points to?",
+      "options": [
+        "The total number of bytes allocated in the heap block.",
+        "The number of elements currently stored in the array.",
+        "The size of the pointer data type itself, such as 4 or 8 bytes.",
+        "Zero, because dynamic memory size cannot be determined at compile time."
+      ],
+      "correct_option": "C",
+      "explanation": "sizeof is a compile-time operator. When applied to a pointer variable, it evaluates to the size of the pointer itself on the target architecture, regardless of how many bytes were dynamically allocated."
+    },
+    {
+      "question": "What is the primary purpose of the 'typedef' keyword in C?",
+      "options": [
+        "To allocate new memory types dynamically.",
+        "To create an alias or alternative name for an existing data type.",
+        "To define macro templates for inline code replacement.",
+        "To enforce strict type safety checks during compilation."
+      ],
+      "correct_option": "B",
+      "explanation": "typedef allows programmers to create a new identifier that represents an existing data type, improving code readability and simplifying complex declarations like pointers to function structures."
+    },
+    {
+      "question": "If an int pointer p points to an array element, what does the expression p + 1 point to?",
+      "options": [
+        "The next byte in memory",
+        "The next int element",
+        "The previous int element",
+        "The end of the array in every case"
+      ],
+      "correct_option": "B",
+      "explanation": "Pointer arithmetic advances by the size of the pointed-to type."
+    },
+    {
+      "question": "What does the declaration const int *ptr prevent?",
+      "options": [
+        "Changing the pointer address",
+        "Changing the integer through ptr",
+        "Reading the integer through ptr",
+        "Using ptr in an expression"
+      ],
+      "correct_option": "B",
+      "explanation": "A pointer to const int does not allow modification of the pointed value through that pointer."
+    },
+    {
+      "question": "What happens when free(NULL) is called in standard C?",
+      "options": [
+        "The program always crashes",
+        "It frees the first allocated block",
+        "It has no effect",
+        "It allocates zero bytes"
+      ],
+      "correct_option": "C",
+      "explanation": "The C standard specifies that free(NULL) performs no operation."
+    },
+    {
+      "question": "Which standard library function reads a line from a stream while limiting the number of characters stored?",
+      "options": [
+        "gets",
+        "scanf without a width",
+        "fgets",
+        "puts"
+      ],
+      "correct_option": "C",
+      "explanation": "fgets accepts a buffer size and reads at most one less than that many characters."
+    },
+    {
+      "question": "What is the purpose of the break statement inside a loop?",
+      "options": [
+        "Skip only the current iteration",
+        "Exit the nearest enclosing loop",
+        "Restart the program",
+        "Terminate the current function"
+      ],
+      "correct_option": "B",
+      "explanation": "break immediately terminates the nearest enclosing loop or switch statement."
+    }
+  ]
 }
