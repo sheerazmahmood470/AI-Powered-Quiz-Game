@@ -630,10 +630,12 @@ void *generate_questions(void *arg) {
         const char *name;
         const char *key;
     } providers[] = {
-        {0, "Gemini primary", gemini_primary},
-        {1, "Groq", groq_key},
-        {2, "Cloudflare Workers AI", cloudflare_key},
-        {3, "OpenRouter", openrouter_key},
+        /* Groq was the provider returning valid batches in the latest Render logs.
+           Try it first; keep every other configured provider as a fallback. */
+        {1, "Groq primary", groq_key},
+        {0, "Gemini primary fallback", gemini_primary},
+        {3, "OpenRouter fallback", openrouter_key},
+        {2, "Cloudflare Workers AI fallback", cloudflare_key},
         {0, "Gemini final fallback", gemini_last}
     };
 
