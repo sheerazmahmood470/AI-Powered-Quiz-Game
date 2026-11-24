@@ -885,6 +885,18 @@ int quiz_engine_start(
             free(stored);
         }
 
+        /* Retry a short Neon claim once; another Render instance may have
+           held rows during the first atomic SKIP LOCKED selection. */
+        if (selected_count < question_count) {
+            int retry_wanted = question_count - selected_count;
+            char *retry = storage_take_questions_json(field_names[topic_index], retry_wanted);
+            if (retry) {
+                selected_count += parse_questions_json(
+                    retry, fresh_batch + selected_count, retry_wanted);
+                free(retry);
+            }
+        }
+
         /* If the unused pool is exhausted, start the next round immediately.
            Never wait for AI merely because this topic's current round ended. */
         if (selected_count < question_count &&
