@@ -56,6 +56,30 @@ static int seed_key(PGconn *db, const char *key, const char *path) {
     return ok;
 }
 
+
+static int seed_question_file(PGconn *db, const char *topic, const char *path) {
+    char *data = read_seed_file(path);
+    if (!data) return 0;
+    cJSON *root = cJSON_Parse(data);
+    free(data);
+    cJSON *questions = root ? cJSON_GetObjectItemCaseSensitive(root, "questions") : NULL;
+    char *array = cJSON_IsArray(questions) ? cJSON_PrintUnformatted(questions) : NULL;
+    cJSON_Delete(root);
+    if (!array) return 1; /* Missing/invalid optional seed is not a database failure. */
+    const char *values[2] = { topic, array };
+    PGresult *r = PQexecParams(db,
+        "INSERT INTO quiz_question_bank(topic,question_hash,question) "
+        "SELECT $1,md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g'))),item "
+        "FROM jsonb_array_elements($2::jsonb) AS item "
+        "WHERE jsonb_typeof(item)='object' AND length(trim(COALESCE(item->>'question','')))>0 "
+        "ON CONFLICT(topic,question_hash) DO NOTHING",
+        2, NULL, values, NULL, NULL, 0);
+    free(array);
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
+    return ok;
+}
+
 int storage_init(void) {
     if (!storage_is_configured()) {
         const char *required = getenv("QUIZ_REQUIRE_DATABASE");
@@ -94,6 +118,12 @@ int storage_init(void) {
 
     if (ok) ok = seed_key(db, "history", "history.json");
     if (ok) ok = seed_key(db, "reviews", "reviews.json");
+    /* Seed only question content into its own table. Never import quiz history. */
+    if (ok) ok = seed_question_file(db, "Philosophy", "questions/philosophy.json");
+    if (ok) ok = seed_question_file(db, "AI and ML", "questions/ai_ml.json");
+    if (ok) ok = seed_question_file(db, "History", "questions/history.json");
+    if (ok) ok = seed_question_file(db, "C programming", "questions/c_programming.json");
+    if (ok) ok = seed_question_file(db, "Finance", "questions/finance.json");
 
     /* One-time migration preserves the existing history blob before row storage starts. */
     if (ok) {
