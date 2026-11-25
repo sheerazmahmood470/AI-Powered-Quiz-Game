@@ -9,6 +9,7 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <unistd.h>
 #include <cjson/cJSON.h>
 
 #include "quiz_engine.h"
@@ -267,7 +268,10 @@ static void *question_bank_refill_worker(void *argument) {
             int inserted = json
                 ? storage_add_questions_count_json(field_names[topic_index], json) : 0;
             free(json);
-            if (inserted > 0) inserted_total += inserted;
+            if (inserted > 0) {
+                inserted_total += inserted;
+                sleep(2); /* Gentle pacing for external AI provider limits. */
+            }
 
             fprintf(stderr, "[QUESTION BANK] %s attempt %d inserted %d new Supabase question(s); progress %d/%d.\n",
                     field_names[topic_index], attempt, inserted, inserted_total, target);
@@ -319,6 +323,31 @@ static void schedule_question_bank_refill(int topic_index, int refill_count) {
         bank_refill_active[topic_index] = 0;
         pthread_mutex_unlock(&bank_refill_mutex);
     }
+}
+
+/* Startup and periodic refill manager. Each topic has a durable 5,000
+   available-question target in Supabase. Workers run in the background so
+   HTTP startup and quiz delivery never wait for AI generation. */
+static void *question_bank_target_manager(void *unused) {
+    (void)unused;
+    for (;;) {
+        for (int i=0;i<5;i++) {
+            int debt=storage_refresh_question_refill_target(field_names[i],5000);
+            if (debt>0) schedule_question_bank_refill(i,debt>MAX_QUESTIONS?MAX_QUESTIONS:debt);
+            sleep(15); /* Stagger provider traffic across categories. */
+        }
+        sleep(300); /* Retry failed/pending deficits every five minutes. */
+    }
+    return NULL;
+}
+
+void quiz_engine_startup_refill(void) {
+    if (!storage_is_configured()) return;
+    pthread_t manager;
+    if (pthread_create(&manager,NULL,question_bank_target_manager,NULL)==0)
+        pthread_detach(manager);
+    else
+        fprintf(stderr,"[QUESTION BANK] Could not start periodic Supabase refill manager.\n");
 }
 
 /* ================= LOAD QUESTION BANK ================= */
@@ -875,7 +904,7 @@ int quiz_engine_start(
 
         /* Used questions stay retired; never recycle them into the active pool. */
         if (selected_count != question_count) {
-            fprintf(stderr, "[QUESTION BANK] Background refill is not ready; only %d/%d unique questions are available.\\n",
+            fprintf(stderr, "[QUESTION BANK] Background refill is not ready; only %d/%d unique questions are available.\n",
                     selected_count, question_count);
             goto cleanup;
         }
