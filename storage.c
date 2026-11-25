@@ -67,6 +67,13 @@ static int migrate_legacy_questions_to_supabase(PGconn *neon, PGconn *supabase) 
                 5,NULL,v,NULL,NULL,0);
             if (!w || PQresultStatus(w)!=PGRES_COMMAND_OK) ok=0;
             if (w) PQclear(w);
+            if (ok) {
+                PGresult *check=PQexecParams(supabase,
+                    "SELECT 1 FROM public.quiz_question_bank WHERE topic=$1 AND question_hash=$2",
+                    2,NULL,v,NULL,NULL,0);
+                if(!check || PQresultStatus(check)!=PGRES_TUPLES_OK || PQntuples(check)!=1) ok=0;
+                if(check)PQclear(check);
+            }
             if (!ok) break;
         }
         if (rows) PQclear(rows);
@@ -83,6 +90,13 @@ static int migrate_legacy_questions_to_supabase(PGconn *neon, PGconn *supabase) 
                 3,NULL,v,NULL,NULL,0);
             if(!w||PQresultStatus(w)!=PGRES_COMMAND_OK) ok=0;
             if(w)PQclear(w);
+            if(ok) {
+                PGresult *check=PQexecParams(supabase,
+                    "SELECT 1 FROM public.quiz_question_archive WHERE topic=$1 AND question_hash=$2",
+                    2,NULL,v,NULL,NULL,0);
+                if(!check||PQresultStatus(check)!=PGRES_TUPLES_OK||PQntuples(check)!=1)ok=0;
+                if(check)PQclear(check);
+            }
             if(!ok)break;
         }
         if(rows)PQclear(rows);
@@ -98,27 +112,16 @@ static int migrate_legacy_questions_to_supabase(PGconn *neon, PGconn *supabase) 
                 2,NULL,v,NULL,NULL,0);
             if(!w||PQresultStatus(w)!=PGRES_COMMAND_OK)ok=0;
             if(w)PQclear(w);
+            if(ok) {
+                PGresult *check=PQexecParams(supabase,
+                    "SELECT 1 FROM public.quiz_question_refill_debt WHERE topic=$1 AND pending_count >= $2::integer",
+                    2,NULL,v,NULL,NULL,0);
+                if(!check||PQresultStatus(check)!=PGRES_TUPLES_OK||PQntuples(check)!=1)ok=0;
+                if(check)PQclear(check);
+            }
             if(!ok)break;
         }
         if(rows)PQclear(rows);
-    }
-
-    /* Verify all source keys exist in Supabase before removing legacy data. */
-    if (ok && has_bank) {
-        PGresult *missing=PQexec(neon,
-            "SELECT count(*) FROM public.quiz_question_bank n "
-            "WHERE NOT EXISTS (SELECT 1 FROM public.quiz_question_archive a "
-            "WHERE a.topic=n.topic AND a.question_hash=n.question_hash)");
-        if(!missing||PQresultStatus(missing)!=PGRES_TUPLES_OK)ok=0;
-        else {
-            const char *v[1]={NULL};
-            (void)v;
-            PGresult *all=PQexec(supabase,
-                "SELECT count(*) FROM public.quiz_question_bank");
-            if(!all||PQresultStatus(all)!=PGRES_TUPLES_OK)ok=0;
-            if(all)PQclear(all);
-        }
-        if(missing)PQclear(missing);
     }
     if (!ok) {
         fprintf(stderr,"[STORAGE] Legacy question migration incomplete; Neon question tables retained.\n");
