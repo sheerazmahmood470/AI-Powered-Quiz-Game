@@ -76,6 +76,53 @@ static void mirror_consumed_questions_to_supabase(const char *topic, const char 
     PQfinish(db);
 }
 
+
+/* Reconcile the replica from Neon on startup, including retired hashes. */
+static void sync_neon_question_bank_to_supabase(PGconn *neon) {
+    if (!neon || !supabase_database_url()) return;
+    PGconn *supabase = open_supabase_database();
+    if (!supabase) return;
+    PGresult *rows = PQexec(neon,
+        "SELECT topic,question_hash,question::text,used_at::text,direct_ready "
+        "FROM quiz_question_bank ORDER BY id");
+    int ok = rows && PQresultStatus(rows) == PGRES_TUPLES_OK;
+    if (ok) for (int i = 0; i < PQntuples(rows); i++) {
+        const char *values[5] = {
+            PQgetvalue(rows,i,0), PQgetvalue(rows,i,1), PQgetvalue(rows,i,2),
+            PQgetisnull(rows,i,3) ? NULL : PQgetvalue(rows,i,3), PQgetvalue(rows,i,4)
+        };
+        PGresult *r = PQexecParams(supabase,
+            "INSERT INTO public.quiz_question_bank(topic,question_hash,question,used_at,direct_ready) "
+            "VALUES($1,$2,$3::jsonb,$4::timestamptz,$5::boolean) "
+            "ON CONFLICT(topic,question_hash) DO UPDATE SET "
+            "used_at=COALESCE(public.quiz_question_bank.used_at,EXCLUDED.used_at),"
+            "direct_ready=public.quiz_question_bank.direct_ready OR EXCLUDED.direct_ready",
+            5,NULL,values,NULL,NULL,0);
+        if (!r || PQresultStatus(r) != PGRES_COMMAND_OK) ok = 0;
+        if (r) PQclear(r);
+        if (!ok) break;
+    }
+    if (rows) PQclear(rows);
+    if (ok) {
+        rows = PQexec(neon,"SELECT topic,question_hash,retired_at::text FROM quiz_question_archive");
+        ok = rows && PQresultStatus(rows) == PGRES_TUPLES_OK;
+        if (ok) for (int i = 0; i < PQntuples(rows); i++) {
+            const char *values[3] = {PQgetvalue(rows,i,0),PQgetvalue(rows,i,1),PQgetvalue(rows,i,2)};
+            PGresult *r = PQexecParams(supabase,
+                "INSERT INTO public.quiz_question_archive(topic,question_hash,retired_at) "
+                "VALUES($1,$2,$3::timestamptz) ON CONFLICT(topic,question_hash) DO NOTHING",
+                3,NULL,values,NULL,NULL,0);
+            if (!r || PQresultStatus(r) != PGRES_COMMAND_OK) ok = 0;
+            if (r) PQclear(r);
+            if (!ok) break;
+        }
+        if (rows) PQclear(rows);
+    }
+    if (!ok) fprintf(stderr,"[STORAGE] Startup Neon-to-Supabase question reconciliation was incomplete.\n");
+    else fprintf(stderr,"[STORAGE] Supabase question replica reconciled from Neon.\n");
+    PQfinish(supabase);
+}
+
 int storage_is_configured(void) {
     return database_url() != NULL;
 }
@@ -223,6 +270,8 @@ int storage_init(void) {
             fprintf(stderr, "[STORAGE] Supabase connection unavailable; continuing with Neon.\n");
         }
     }
+
+    if (ok) sync_neon_question_bank_to_supabase(db);
 
     if (ok) ok = seed_key(db, "history", "history.json");
     if (ok) ok = seed_key(db, "reviews", "reviews.json");
