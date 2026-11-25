@@ -664,6 +664,30 @@ int storage_question_refill_debt(const char *topic) {
     return count;
 }
 
+/* Recalculate the durable deficit against the configured per-topic target.
+   The question rows and refill debt both live only in Supabase. */
+int storage_refresh_question_refill_target(const char *topic, int target_count) {
+    if (!storage_is_configured() || !topic || target_count <= 0) return -1;
+    PGconn *db = open_supabase_database();
+    if (!db) return -1;
+    char target_text[16];
+    snprintf(target_text,sizeof(target_text),"%d",target_count);
+    const char *values[2]={topic,target_text};
+    PGresult *r=PQexecParams(db,
+        "INSERT INTO public.quiz_question_refill_debt(topic,pending_count,updated_at) "
+        "SELECT $1,GREATEST(0,$2::integer-COUNT(*)::integer),NOW() "
+        "FROM public.quiz_question_bank WHERE topic=$1 "
+        "ON CONFLICT(topic) DO UPDATE SET pending_count=EXCLUDED.pending_count,updated_at=NOW() "
+        "RETURNING pending_count",
+        2,NULL,values,NULL,NULL,0);
+    int debt=-1;
+    if(r&&PQresultStatus(r)==PGRES_TUPLES_OK&&PQntuples(r)==1)
+        debt=atoi(PQgetvalue(r,0,0));
+    if(r)PQclear(r);
+    PQfinish(db);
+    return debt;
+}
+
 /* Store API questions reserved for direct delivery to a future quiz. */
 int storage_add_direct_questions_json(const char *topic, const char *questions_json) {
     if (!storage_is_configured() || !topic || !questions_json) return 0;
