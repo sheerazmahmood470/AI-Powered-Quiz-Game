@@ -9,6 +9,10 @@
 #define MAX_SEED_BYTES 10000000
 
 static const char *database_url(void) {
+    const char *value = getenv("DATABASE_URL");
+    return (value && value[0]) ? value : NULL;
+}
+
 static const char *supabase_database_url(void) {
     const char *value = getenv("SUPABASE_DATABASE_URL");
     return (value && value[0]) ? value : NULL;
@@ -47,11 +51,11 @@ static void mirror_questions_to_supabase(const char *topic, const char *json) {
     PGconn *db = open_supabase_database();
     if (!db) {
         if (supabase_database_url())
-            fprintf(stderr, "[STORAGE] Supabase question mirror unavailable; Neon remains active.\\n");
+            fprintf(stderr, "[STORAGE] Supabase question mirror unavailable; Neon remains active.\n");
         return;
     }
     if (!supabase_exec_questions(db, topic, json))
-        fprintf(stderr, "[STORAGE] Supabase question mirror insert failed for %s.\\n", topic);
+        fprintf(stderr, "[STORAGE] Supabase question mirror insert failed for %s.\n", topic);
     PQfinish(db);
 }
 
@@ -67,13 +71,9 @@ static void mirror_consumed_questions_to_supabase(const char *topic, const char 
         "FROM consumed c WHERE q.topic=$1 AND q.question_hash=c.question_hash",
         2, NULL, values, NULL, NULL, 0);
     if (!r || PQresultStatus(r) != PGRES_COMMAND_OK)
-        fprintf(stderr, "[STORAGE] Supabase consumed-question sync failed for %s; Neon remains authoritative.\\n", topic);
+        fprintf(stderr, "[STORAGE] Supabase consumed-question sync failed for %s; Neon remains authoritative.\n", topic);
     if (r) PQclear(r);
     PQfinish(db);
-}
-
-    const char *value = getenv("DATABASE_URL");
-    return (value && value[0]) ? value : NULL;
 }
 
 int storage_is_configured(void) {
@@ -150,10 +150,10 @@ int storage_init(void) {
     if (!storage_is_configured()) {
         const char *required = getenv("QUIZ_REQUIRE_DATABASE");
         if (required && (!strcmp(required, "1") || !strcmp(required, "true") || !strcmp(required, "yes"))) {
-            fprintf(stderr, "[STORAGE] DATABASE_URL is required but is not configured. Refusing temporary storage.\\n");
+            fprintf(stderr, "[STORAGE] DATABASE_URL is required but is not configured. Refusing temporary storage.\n");
             return 0;
         }
-        fprintf(stderr, "[STORAGE] Neon not configured; using local development storage.\\n");
+        fprintf(stderr, "[STORAGE] Neon not configured; using local development storage.\n");
         return 1;
     }
     PGconn *db = open_database();
@@ -216,11 +216,11 @@ int storage_init(void) {
                 "CREATE INDEX IF NOT EXISTS quiz_question_bank_pick_idx "
                 "ON public.quiz_question_bank(topic,used_at,id);");
             if (!sr || PQresultStatus(sr) != PGRES_COMMAND_OK)
-                fprintf(stderr, "[STORAGE] Supabase question schema setup failed; continuing with Neon.\\n");
+                fprintf(stderr, "[STORAGE] Supabase question schema setup failed; continuing with Neon.\n");
             if (sr) PQclear(sr);
             PQfinish(supabase);
         } else {
-            fprintf(stderr, "[STORAGE] Supabase connection unavailable; continuing with Neon.\\n");
+            fprintf(stderr, "[STORAGE] Supabase connection unavailable; continuing with Neon.\n");
         }
     }
 
@@ -245,7 +245,7 @@ int storage_init(void) {
                 cJSON *questions = root ? cJSON_GetObjectItemCaseSensitive(root,"questions") : NULL;
                 char *array = cJSON_IsArray(questions) ? cJSON_PrintUnformatted(questions) : NULL;
                 if (array && !supabase_exec_questions(supabase, topics[i], array))
-                    fprintf(stderr, "[STORAGE] Supabase seed mirror failed for %s.\\n", topics[i]);
+                    fprintf(stderr, "[STORAGE] Supabase seed mirror failed for %s.\n", topics[i]);
                 free(array); cJSON_Delete(root); free(data);
             }
             PQfinish(supabase);
@@ -326,7 +326,7 @@ int storage_init(void) {
     }
 
     if (!ok) fprintf(stderr, "[STORAGE] PostgreSQL schema or history migration failed.\n");
-    if (ok) fprintf(stderr, "[STORAGE] Neon PostgreSQL connected; quiz history and reviews are persistent.\\n");
+    if (ok) fprintf(stderr, "[STORAGE] Neon PostgreSQL connected; quiz history and reviews are persistent.\n");
     PQfinish(db);
     return ok;
 }
