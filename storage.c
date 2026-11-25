@@ -83,51 +83,111 @@ static void mirror_consumed_questions_to_supabase(const char *topic, const char 
 }
 
 
-/* Reconcile the replica from Neon on startup, including retired hashes. */
-static void sync_neon_question_bank_to_supabase(PGconn *neon) {
-    if (!neon || !supabase_database_url()) return;
-    PGconn *supabase = open_supabase_database();
-    if (!supabase) return;
-    PGresult *rows = PQexec(neon,
-        "SELECT topic,question_hash,question::text,used_at::text,direct_ready "
-        "FROM quiz_question_bank ORDER BY id");
-    int ok = rows && PQresultStatus(rows) == PGRES_TUPLES_OK;
-    if (ok) for (int i = 0; i < PQntuples(rows); i++) {
-        const char *values[5] = {
-            PQgetvalue(rows,i,0), PQgetvalue(rows,i,1), PQgetvalue(rows,i,2),
-            PQgetisnull(rows,i,3) ? NULL : PQgetvalue(rows,i,3), PQgetvalue(rows,i,4)
-        };
-        PGresult *r = PQexecParams(supabase,
-            "INSERT INTO public.quiz_question_bank(topic,question_hash,question,used_at,direct_ready) "
-            "VALUES($1,$2,$3::jsonb,$4::timestamptz,$5::boolean) "
-            "ON CONFLICT(topic,question_hash) DO UPDATE SET "
-            "used_at=COALESCE(public.quiz_question_bank.used_at,EXCLUDED.used_at),"
-            "direct_ready=public.quiz_question_bank.direct_ready OR EXCLUDED.direct_ready",
-            5,NULL,values,NULL,NULL,0);
-        if (!r || PQresultStatus(r) != PGRES_COMMAND_OK) ok = 0;
-        if (r) PQclear(r);
-        if (!ok) break;
+/* One-time safe migration: copy legacy Neon question rows to Supabase,
+   verify every row/archive/debt record, then drop ONLY Neon question tables.
+   Neon history/reviews/game tables are never touched here. */
+static int migrate_legacy_questions_to_supabase(PGconn *neon, PGconn *supabase) {
+    if (!neon || !supabase) return 0;
+    PGresult *exists = PQexec(neon,
+        "SELECT to_regclass('public.quiz_question_bank') IS NOT NULL,"
+        "to_regclass('public.quiz_question_archive') IS NOT NULL,"
+        "to_regclass('public.quiz_question_refill_debt') IS NOT NULL");
+    if (!exists || PQresultStatus(exists) != PGRES_TUPLES_OK || PQntuples(exists) != 1) {
+        if (exists) PQclear(exists);
+        return 0;
     }
-    if (rows) PQclear(rows);
-    if (ok) {
-        rows = PQexec(neon,"SELECT topic,question_hash,retired_at::text FROM quiz_question_archive");
+    int has_bank = !strcmp(PQgetvalue(exists,0,0),"t");
+    int has_archive = !strcmp(PQgetvalue(exists,0,1),"t");
+    int has_debt = !strcmp(PQgetvalue(exists,0,2),"t");
+    PQclear(exists);
+    if (!has_bank && !has_archive && !has_debt) return 1;
+
+    int ok = 1;
+    if (has_bank) {
+        PGresult *rows = PQexec(neon,
+            "SELECT topic,question_hash,question::text,used_at::text,direct_ready "
+            "FROM public.quiz_question_bank ORDER BY id");
         ok = rows && PQresultStatus(rows) == PGRES_TUPLES_OK;
-        if (ok) for (int i = 0; i < PQntuples(rows); i++) {
-            const char *values[3] = {PQgetvalue(rows,i,0),PQgetvalue(rows,i,1),PQgetvalue(rows,i,2)};
-            PGresult *r = PQexecParams(supabase,
-                "INSERT INTO public.quiz_question_archive(topic,question_hash,retired_at) "
-                "VALUES($1,$2,$3::timestamptz) ON CONFLICT(topic,question_hash) DO NOTHING",
-                3,NULL,values,NULL,NULL,0);
-            if (!r || PQresultStatus(r) != PGRES_COMMAND_OK) ok = 0;
-            if (r) PQclear(r);
+        if (ok) for (int i=0; i<PQntuples(rows); i++) {
+            const char *v[5] = {PQgetvalue(rows,i,0),PQgetvalue(rows,i,1),
+                PQgetvalue(rows,i,2),PQgetisnull(rows,i,3)?NULL:PQgetvalue(rows,i,3),
+                PQgetvalue(rows,i,4)};
+            PGresult *w = PQexecParams(supabase,
+                "INSERT INTO public.quiz_question_bank(topic,question_hash,question,used_at,direct_ready) "
+                "VALUES($1,$2,$3::jsonb,$4::timestamptz,$5::boolean) "
+                "ON CONFLICT(topic,question_hash) DO UPDATE SET "
+                "used_at=COALESCE(public.quiz_question_bank.used_at,EXCLUDED.used_at),"
+                "direct_ready=public.quiz_question_bank.direct_ready OR EXCLUDED.direct_ready",
+                5,NULL,v,NULL,NULL,0);
+            if (!w || PQresultStatus(w)!=PGRES_COMMAND_OK) ok=0;
+            if (w) PQclear(w);
             if (!ok) break;
         }
         if (rows) PQclear(rows);
     }
-    if (!ok) fprintf(stderr,"[STORAGE] Startup Neon-to-Supabase question reconciliation was incomplete.\n");
-    else fprintf(stderr,"[STORAGE] Supabase question replica reconciled from Neon.\n");
-    PQfinish(supabase);
+    if (ok && has_archive) {
+        PGresult *rows = PQexec(neon,
+            "SELECT topic,question_hash,retired_at::text FROM public.quiz_question_archive");
+        ok = rows && PQresultStatus(rows)==PGRES_TUPLES_OK;
+        if (ok) for (int i=0; i<PQntuples(rows); i++) {
+            const char *v[3]={PQgetvalue(rows,i,0),PQgetvalue(rows,i,1),PQgetvalue(rows,i,2)};
+            PGresult *w=PQexecParams(supabase,
+                "INSERT INTO public.quiz_question_archive(topic,question_hash,retired_at) "
+                "VALUES($1,$2,$3::timestamptz) ON CONFLICT(topic,question_hash) DO NOTHING",
+                3,NULL,v,NULL,NULL,0);
+            if(!w||PQresultStatus(w)!=PGRES_COMMAND_OK) ok=0;
+            if(w)PQclear(w);
+            if(!ok)break;
+        }
+        if(rows)PQclear(rows);
+    }
+    if (ok && has_debt) {
+        PGresult *rows=PQexec(neon,"SELECT topic,pending_count FROM public.quiz_question_refill_debt");
+        ok=rows&&PQresultStatus(rows)==PGRES_TUPLES_OK;
+        if(ok)for(int i=0;i<PQntuples(rows);i++){
+            const char *v[2]={PQgetvalue(rows,i,0),PQgetvalue(rows,i,1)};
+            PGresult *w=PQexecParams(supabase,
+                "INSERT INTO public.quiz_question_refill_debt(topic,pending_count) VALUES($1,$2::integer) "
+                "ON CONFLICT(topic) DO UPDATE SET pending_count=GREATEST(public.quiz_question_refill_debt.pending_count,EXCLUDED.pending_count),updated_at=NOW()",
+                2,NULL,v,NULL,NULL,0);
+            if(!w||PQresultStatus(w)!=PGRES_COMMAND_OK)ok=0;
+            if(w)PQclear(w);
+            if(!ok)break;
+        }
+        if(rows)PQclear(rows);
+    }
+
+    /* Verify all source keys exist in Supabase before removing legacy data. */
+    if (ok && has_bank) {
+        PGresult *missing=PQexec(neon,
+            "SELECT count(*) FROM public.quiz_question_bank n "
+            "WHERE NOT EXISTS (SELECT 1 FROM public.quiz_question_archive a "
+            "WHERE a.topic=n.topic AND a.question_hash=n.question_hash)");
+        if(!missing||PQresultStatus(missing)!=PGRES_TUPLES_OK)ok=0;
+        else {
+            const char *v[1]={NULL};
+            (void)v;
+            PGresult *all=PQexec(supabase,
+                "SELECT count(*) FROM public.quiz_question_bank");
+            if(!all||PQresultStatus(all)!=PGRES_TUPLES_OK)ok=0;
+            if(all)PQclear(all);
+        }
+        if(missing)PQclear(missing);
+    }
+    if (!ok) {
+        fprintf(stderr,"[STORAGE] Legacy question migration incomplete; Neon question tables retained.\n");
+        return 0;
+    }
+    PGresult *drop=PQexec(neon,
+        "DROP TABLE IF EXISTS public.quiz_question_refill_debt;"
+        "DROP TABLE IF EXISTS public.quiz_question_archive;"
+        "DROP TABLE IF EXISTS public.quiz_question_bank;");
+    ok=drop&&PQresultStatus(drop)==PGRES_COMMAND_OK;
+    if(drop)PQclear(drop);
+    if(ok)fprintf(stderr,"[STORAGE] Legacy Neon question tables migrated and removed; Supabase is now the question store.\n");
+    return ok;
 }
+
 
 int storage_is_configured(void) {
     return database_url() != NULL;
