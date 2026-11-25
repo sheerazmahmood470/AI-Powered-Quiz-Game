@@ -29,60 +29,6 @@ static PGconn *open_supabase_database(void) {
     return db;
 }
 
-/* Supabase is a secondary question-bank replica. Neon remains authoritative
-   for claims so the two independent databases cannot issue the same row
-   concurrently as separate sources of truth. */
-static int supabase_exec_questions(PGconn *db, const char *topic, const char *json) {
-    if (!db || !topic || !json) return 0;
-    const char *values[2] = { topic, json };
-    PGresult *r = PQexecParams(db,
-        "INSERT INTO public.quiz_question_bank(topic,question_hash,question) "
-        "SELECT $1,md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g'))),item "
-        "FROM jsonb_array_elements($2::jsonb) AS item "
-        "WHERE jsonb_typeof(item)='object' AND length(trim(COALESCE(item->>'question','')))>0 "
-        "AND NOT EXISTS (SELECT 1 FROM public.quiz_question_archive a WHERE a.topic=$1 "
-        "AND a.question_hash=md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g')))) "
-        "ON CONFLICT(topic,question_hash) DO NOTHING",
-        2, NULL, values, NULL, NULL, 0);
-    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
-    if (r) PQclear(r);
-    return ok;
-}
-
-static void mirror_questions_to_supabase(const char *topic, const char *json) {
-    PGconn *db = open_supabase_database();
-    if (!db) {
-        if (supabase_database_url())
-            fprintf(stderr, "[STORAGE] Supabase question mirror unavailable; Neon remains active.\n");
-        return;
-    }
-    if (!supabase_exec_questions(db, topic, json))
-        fprintf(stderr, "[STORAGE] Supabase question mirror insert failed for %s.\n", topic);
-    PQfinish(db);
-}
-
-static void mirror_consumed_questions_to_supabase(const char *topic, const char *json) {
-    PGconn *db = open_supabase_database();
-    if (!db) return;
-    const char *values[2] = { topic, json };
-    PGresult *r = PQexecParams(db,
-        "WITH consumed AS ("
-        " SELECT md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g'))) AS question_hash "
-        " FROM jsonb_array_elements($2::jsonb) AS item"
-        "), retired AS ("
-        " UPDATE public.quiz_question_bank q SET used_at=COALESCE(q.used_at,NOW()) "
-        " FROM consumed c WHERE q.topic=$1 AND q.question_hash=c.question_hash "
-        " RETURNING q.topic,q.question_hash"
-        ") INSERT INTO public.quiz_question_archive(topic,question_hash) "
-        "SELECT topic,question_hash FROM retired ON CONFLICT(topic,question_hash) DO NOTHING",
-        2, NULL, values, NULL, NULL, 0);
-    if (!r || PQresultStatus(r) != PGRES_COMMAND_OK)
-        fprintf(stderr, "[STORAGE] Supabase consumed-question sync failed for %s; Neon remains authoritative.\n", topic);
-    if (r) PQclear(r);
-    PQfinish(db);
-}
-
-
 /* One-time safe migration: copy legacy Neon question rows to Supabase,
    verify every row/archive/debt record, then drop ONLY Neon question tables.
    Neon history/reviews/game tables are never touched here. */
@@ -619,7 +565,7 @@ int storage_append_review_json(const char *json) {
    remains in quiz_history and is never copied into this table. */
 int storage_add_questions_json(const char *topic, const char *questions_json) {
     if (!storage_is_configured() || !topic || !questions_json) return 0;
-    PGconn *db = open_database();
+    PGconn *db = open_supabase_database();
     if (!db) return 0;
     const char *values[2] = { topic, questions_json };
     PGresult *r = PQexec(db, "BEGIN");
@@ -645,15 +591,14 @@ int storage_add_questions_json(const char *topic, const char *questions_json) {
         if (r) PQclear(r);
     }
     PQfinish(db);
-    if (ok) mirror_questions_to_supabase(topic, questions_json);
     return ok;
 }
 
-/* Insert background-generated questions into the normal Neon pool and
+/* Insert background-generated questions into the normal Supabase pool and
    return the exact number of newly inserted rows (duplicates are not counted). */
 int storage_add_questions_count_json(const char *topic, const char *questions_json) {
     if (!storage_is_configured() || !topic || !questions_json) return 0;
-    PGconn *db = open_database();
+    PGconn *db = open_supabase_database();
     if (!db) return 0;
     const char *values[2] = { topic, questions_json };
     PGresult *r = PQexec(db, "BEGIN");
@@ -695,13 +640,12 @@ int storage_add_questions_count_json(const char *topic, const char *questions_js
         if (r) PQclear(r);
     }
     PQfinish(db);
-    if (ok && inserted > 0) mirror_questions_to_supabase(topic, questions_json);
     return ok ? inserted : 0;
 }
 
 int storage_question_refill_debt(const char *topic) {
     if (!storage_is_configured() || !topic) return -1;
-    PGconn *db = open_database();
+    PGconn *db = open_supabase_database();
     if (!db) return -1;
     const char *values[1] = { topic };
     PGresult *r = PQexecParams(db,
@@ -720,7 +664,7 @@ int storage_question_refill_debt(const char *topic) {
 /* Store API questions reserved for direct delivery to a future quiz. */
 int storage_add_direct_questions_json(const char *topic, const char *questions_json) {
     if (!storage_is_configured() || !topic || !questions_json) return 0;
-    PGconn *db = open_database();
+    PGconn *db = open_supabase_database();
     if (!db) return 0;
     const char *values[2] = { topic, questions_json };
     PGresult *r = PQexecParams(db,
@@ -739,7 +683,7 @@ int storage_add_direct_questions_json(const char *topic, const char *questions_j
 /* Atomically claim the persistent direct-delivery queue. */
 char *storage_take_direct_questions_json(const char *topic, int limit) {
     if (!storage_is_configured() || !topic || limit <= 0 || limit > 15) return NULL;
-    PGconn *db = open_database();
+    PGconn *db = open_supabase_database();
     if (!db) return NULL;
     const char *values[2] = { topic, NULL };
     char limit_text[16];
@@ -776,12 +720,12 @@ char *storage_take_direct_questions_json(const char *topic, int limit) {
     return copy;
 }
 
-/* Atomically CUT questions out of the active Neon bank.
+/* Atomically CUT questions out of the active Supabase bank.
    DELETE ... RETURNING makes delivery and removal one transaction: once a
    quiz receives a question, that row no longer exists in this topic's bank. */
 char *storage_take_questions_json(const char *topic, int limit) {
     if (!storage_is_configured() || !topic || limit <= 0 || limit > 15) return NULL;
-    PGconn *db = open_database();
+    PGconn *db = open_supabase_database();
     if (!db) return NULL;
     const char *values[2] = { topic, NULL };
     char limit_text[16];
@@ -823,13 +767,12 @@ char *storage_take_questions_json(const char *topic, int limit) {
     }
     PQfinish(db);
     if (!ok) { free(copy); return NULL; }
-    if (copy) mirror_consumed_questions_to_supabase(topic, copy);
     return copy;
 }
 
 int storage_question_bank_count(const char *topic, int unused_only) {
     if (!storage_is_configured() || !topic) return -1;
-    PGconn *db = open_database();
+    PGconn *db = open_supabase_database();
     if (!db) return -1;
     const char *values[1] = { topic };
     const char *sql = unused_only
@@ -847,7 +790,7 @@ int storage_question_bank_count(const char *topic, int unused_only) {
 
 int storage_reset_question_usage(const char *topic) {
     if (!storage_is_configured() || !topic) return 0;
-    PGconn *db = open_database();
+    PGconn *db = open_supabase_database();
     if (!db) return 0;
     const char *values[1] = { topic };
     PGresult *r = PQexecParams(db,
@@ -861,7 +804,7 @@ int storage_reset_question_usage(const char *topic) {
 
 int storage_mark_questions_used_json(const char *topic, const char *questions_json) {
     if (!storage_is_configured() || !topic || !questions_json) return 0;
-    PGconn *db = open_database();
+    PGconn *db = open_supabase_database();
     if (!db) return 0;
     const char *values[2] = { topic, questions_json };
     PGresult *r = PQexecParams(db,
@@ -880,7 +823,7 @@ int storage_mark_questions_used_json(const char *topic, const char *questions_js
    another quiz, including when multiple server instances run concurrently. */
 char *storage_add_claim_questions_json(const char *topic, const char *questions_json) {
     if (!storage_is_configured() || !topic || !questions_json) return NULL;
-    PGconn *db = open_database();
+    PGconn *db = open_supabase_database();
     if (!db) return NULL;
     const char *values[2] = { topic, questions_json };
     PGresult *r = PQexec(db, "BEGIN");
