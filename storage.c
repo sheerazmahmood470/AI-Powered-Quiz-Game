@@ -18,11 +18,31 @@ static const char *supabase_database_url(void) {
     return (value && value[0]) ? value : NULL;
 }
 
+static const char *supabase_connection_error_class(const char *message) {
+    if (!message || !message[0]) return "unknown connection error";
+    if (strstr(message, "could not translate host name") || strstr(message, "Name or service not known"))
+        return "hostname/DNS resolution failed; verify the pooler hostname";
+    if (strstr(message, "Connection refused"))
+        return "connection refused; verify pooler host and port";
+    if (strstr(message, "timeout expired") || strstr(message, " timed out"))
+        return "connection timed out; check network and pooler endpoint";
+    if (strstr(message, "password authentication failed") || strstr(message, "SASL"))
+        return "authentication failed; verify database username and password";
+    if (strstr(message, "no pg_hba.conf entry") || strstr(message, "SSL"))
+        return "SSL or connection policy rejected the connection; verify SSL settings";
+    if (strstr(message, "does not exist") && strstr(message, "database"))
+        return "database name rejected; verify the connection URI database";
+    return "unclassified connection failure; verify the complete Supabase connection URI";
+}
+
 static PGconn *open_supabase_database(void) {
     const char *url = supabase_database_url();
     if (!url) return NULL;
     PGconn *db = PQconnectdb(url);
     if (!db || PQstatus(db) != CONNECTION_OK) {
+        const char *message = db ? PQerrorMessage(db) : NULL;
+        fprintf(stderr, "[STORAGE] Supabase connection diagnostic: %s. Connection details were intentionally omitted.\\n",
+                supabase_connection_error_class(message));
         if (db) PQfinish(db);
         return NULL;
     }
