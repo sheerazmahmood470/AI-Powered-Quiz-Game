@@ -1190,6 +1190,8 @@ int main(void) {
         return 1;
     }
 
+    quiz_engine_startup_refill();
+
     struct MHD_Daemon *daemon = MHD_start_daemon(
         MHD_USE_INTERNAL_POLLING_THREAD,
         PORT,
