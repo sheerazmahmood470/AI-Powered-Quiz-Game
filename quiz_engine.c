@@ -278,17 +278,26 @@ static void *question_bank_refill_worker(void *argument) {
         }
 
         int remaining = storage_question_refill_debt(field_names[topic_index]);
-        if (remaining < 0 || remaining > 0) {
-            fprintf(stderr, "[QUESTION BANK] %s refill remains pending (%d question(s)); a later quiz will retry.\n",
+        if (remaining < 0 || (remaining > 0 && inserted_total == 0)) {
+            fprintf(stderr, "[QUESTION BANK] %s refill remains pending (%d question(s)); periodic retry will resume it.\n",
                     field_names[topic_index], remaining);
             pthread_mutex_lock(&bank_refill_mutex);
             bank_refill_active[topic_index] = 0;
             pthread_mutex_unlock(&bank_refill_mutex);
             break;
         }
-        fprintf(stderr, "[QUESTION BANK] %s refill chunk complete: %d replacement(s) inserted.\n",
-                field_names[topic_index], inserted_total);
-        /* Loop for additional debt accumulated while this chunk was running. */
+        if (remaining == 0) {
+            fprintf(stderr, "[QUESTION BANK] %s reached its available-question target.\n",
+                    field_names[topic_index]);
+            pthread_mutex_lock(&bank_refill_mutex);
+            bank_refill_active[topic_index] = 0;
+            pthread_mutex_unlock(&bank_refill_mutex);
+            break;
+        }
+        fprintf(stderr, "[QUESTION BANK] %s refill progress: %d new question(s) in this chunk; %d remain.\n",
+                field_names[topic_index], inserted_total, remaining);
+        /* Keep processing while each chunk makes progress; failures are retried
+           by the periodic target manager rather than spinning indefinitely. */
     }
     return NULL;
 }
