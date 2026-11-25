@@ -1182,13 +1182,15 @@ static enum MHD_Result answer_to_connection(
 
 int main(void) {
     if (!storage_init()) {
-        fprintf(stderr, "[STORAGE] Startup aborted: Neon PostgreSQL is unavailable; temporary storage fallback is disabled.\n");
+        fprintf(stderr, "[STORAGE] Startup aborted: Neon or Supabase PostgreSQL is unavailable; temporary storage fallback is disabled.\n");
         return 1;
     }
     if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
         printf("Curl initialization failed!\n");
         return 1;
     }
+
+    quiz_engine_startup_refill();
 
     struct MHD_Daemon *daemon = MHD_start_daemon(
         MHD_USE_INTERNAL_POLLING_THREAD,

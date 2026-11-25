@@ -9,6 +9,7 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <unistd.h>
 #include <cjson/cJSON.h>
 
 #include "quiz_engine.h"
@@ -201,7 +202,7 @@ static int parse_questions_json(const char *json, Question *destination, int cap
 
 
 /* One non-blocking refill worker per topic. It adds a small validated batch
-   while the current quiz is already running; reaching 2,000 is gradual and
+   while the current quiz is already running; reaching the 5,000-per-topic target is gradual and
    never makes quiz start wait for the AI providers. */
 static pthread_mutex_t bank_refill_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int bank_refill_active[5];
@@ -216,7 +217,7 @@ static void *question_bank_refill_worker(void *argument) {
     free(argument);
     int topic_index = args.topic_index;
 
-    fprintf(stderr, "[QUESTION BANK] Background Neon-only refill started for %s.\n",
+    fprintf(stderr, "[QUESTION BANK] Background Supabase question-bank refill started for %s.\n",
             field_names[topic_index]);
 
     for (;;) {
@@ -267,24 +268,36 @@ static void *question_bank_refill_worker(void *argument) {
             int inserted = json
                 ? storage_add_questions_count_json(field_names[topic_index], json) : 0;
             free(json);
-            if (inserted > 0) inserted_total += inserted;
+            if (inserted > 0) {
+                inserted_total += inserted;
+                sleep(2); /* Gentle pacing for external AI provider limits. */
+            }
 
-            fprintf(stderr, "[QUESTION BANK] %s attempt %d inserted %d new Neon question(s); progress %d/%d.\n",
+            fprintf(stderr, "[QUESTION BANK] %s attempt %d inserted %d new Supabase question(s); progress %d/%d.\n",
                     field_names[topic_index], attempt, inserted, inserted_total, target);
         }
 
         int remaining = storage_question_refill_debt(field_names[topic_index]);
-        if (remaining < 0 || remaining > 0) {
-            fprintf(stderr, "[QUESTION BANK] %s refill remains pending (%d question(s)); a later quiz will retry.\n",
+        if (remaining < 0 || (remaining > 0 && inserted_total == 0)) {
+            fprintf(stderr, "[QUESTION BANK] %s refill remains pending (%d question(s)); periodic retry will resume it.\n",
                     field_names[topic_index], remaining);
             pthread_mutex_lock(&bank_refill_mutex);
             bank_refill_active[topic_index] = 0;
             pthread_mutex_unlock(&bank_refill_mutex);
             break;
         }
-        fprintf(stderr, "[QUESTION BANK] %s refill chunk complete: %d replacement(s) inserted.\n",
-                field_names[topic_index], inserted_total);
-        /* Loop for additional debt accumulated while this chunk was running. */
+        if (remaining == 0) {
+            fprintf(stderr, "[QUESTION BANK] %s reached its available-question target.\n",
+                    field_names[topic_index]);
+            pthread_mutex_lock(&bank_refill_mutex);
+            bank_refill_active[topic_index] = 0;
+            pthread_mutex_unlock(&bank_refill_mutex);
+            break;
+        }
+        fprintf(stderr, "[QUESTION BANK] %s refill progress: %d new question(s) in this chunk; %d remain.\n",
+                field_names[topic_index], inserted_total, remaining);
+        /* Keep processing while each chunk makes progress; failures are retried
+           by the periodic target manager rather than spinning indefinitely. */
     }
     return NULL;
 }
@@ -296,7 +309,7 @@ static void schedule_question_bank_refill(int topic_index, int refill_count) {
     pthread_mutex_lock(&bank_refill_mutex);
     if (bank_refill_active[topic_index]) {
         pthread_mutex_unlock(&bank_refill_mutex);
-        return; /* Neon already holds the exact pending count. */
+        return; /* Supabase already holds the exact pending count. */
     }
     bank_refill_active[topic_index] = 1;
     pthread_mutex_unlock(&bank_refill_mutex);
@@ -319,6 +332,31 @@ static void schedule_question_bank_refill(int topic_index, int refill_count) {
         bank_refill_active[topic_index] = 0;
         pthread_mutex_unlock(&bank_refill_mutex);
     }
+}
+
+/* Startup and periodic refill manager. Each topic has a durable 5,000
+   available-question target in Supabase. Workers run in the background so
+   HTTP startup and quiz delivery never wait for AI generation. */
+static void *question_bank_target_manager(void *unused) {
+    (void)unused;
+    for (;;) {
+        for (int i=0;i<5;i++) {
+            int debt=storage_refresh_question_refill_target(field_names[i],5000);
+            if (debt>0) schedule_question_bank_refill(i,debt>MAX_QUESTIONS?MAX_QUESTIONS:debt);
+            sleep(15); /* Stagger provider traffic across categories. */
+        }
+        sleep(300); /* Retry failed/pending deficits every five minutes. */
+    }
+    return NULL;
+}
+
+void quiz_engine_startup_refill(void) {
+    if (!storage_is_configured()) return;
+    pthread_t manager;
+    if (pthread_create(&manager,NULL,question_bank_target_manager,NULL)==0)
+        pthread_detach(manager);
+    else
+        fprintf(stderr,"[QUESTION BANK] Could not start periodic Supabase refill manager.\n");
 }
 
 /* ================= LOAD QUESTION BANK ================= */
@@ -854,7 +892,7 @@ int quiz_engine_start(
     memset(fresh_batch, 0, sizeof(fresh_batch));
 
     if (storage_is_configured()) {
-        /* Every quiz question comes from Neon only. The atomic claim marks
+        /* Every quiz question comes directly from Supabase only. The atomic claim marks
            each selected row used permanently, preventing repeat delivery. */
         int selected_count = 0;
         char *stored = storage_take_questions_json(field_names[topic_index], question_count);
@@ -863,7 +901,7 @@ int quiz_engine_start(
             free(stored);
         }
 
-        /* The atomic Neon delete has already recorded the exact replacement
+        /* The atomic Supabase delete has already recorded the exact replacement
            debt. Schedule from that durable count, not the parsed quiz count:
            even malformed legacy rows that were removed must be replaced. */
         int refill_debt = storage_question_refill_debt(field_names[topic_index]);
@@ -875,7 +913,7 @@ int quiz_engine_start(
 
         /* Used questions stay retired; never recycle them into the active pool. */
         if (selected_count != question_count) {
-            fprintf(stderr, "[QUESTION BANK] Background refill is not ready; only %d/%d unique questions are available.\\n",
+            fprintf(stderr, "[QUESTION BANK] Background refill is not ready; only %d/%d unique questions are available.\n",
                     selected_count, question_count);
             goto cleanup;
         }

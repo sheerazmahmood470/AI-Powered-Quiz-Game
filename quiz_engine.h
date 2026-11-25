@@ -21,6 +21,8 @@ typedef struct {
     double start_time;
 } WebQuizSession;
 
+void quiz_engine_startup_refill(void);
+
 int quiz_engine_start(
     WebQuizSession *session,
     const char *player,
