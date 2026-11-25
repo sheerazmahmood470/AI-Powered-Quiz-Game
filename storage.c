@@ -676,7 +676,7 @@ int storage_refresh_question_refill_target(const char *topic, int target_count) 
     PGresult *r=PQexecParams(db,
         "INSERT INTO public.quiz_question_refill_debt(topic,pending_count,updated_at) "
         "SELECT $1,GREATEST(0,$2::integer-COUNT(*)::integer),NOW() "
-        "FROM public.quiz_question_bank WHERE topic=$1 "
+        "FROM public.quiz_question_bank WHERE topic=$1 AND used_at IS NULL "
         "ON CONFLICT(topic) DO UPDATE SET pending_count=EXCLUDED.pending_count,updated_at=NOW() "
         "RETURNING pending_count",
         2,NULL,values,NULL,NULL,0);
