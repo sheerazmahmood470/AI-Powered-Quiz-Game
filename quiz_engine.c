@@ -216,7 +216,7 @@ static void *question_bank_refill_worker(void *argument) {
     free(argument);
     int topic_index = args.topic_index;
 
-    fprintf(stderr, "[QUESTION BANK] Background Neon-only refill started for %s.\n",
+    fprintf(stderr, "[QUESTION BANK] Background Supabase question-bank refill started for %s.\n",
             field_names[topic_index]);
 
     for (;;) {
@@ -269,7 +269,7 @@ static void *question_bank_refill_worker(void *argument) {
             free(json);
             if (inserted > 0) inserted_total += inserted;
 
-            fprintf(stderr, "[QUESTION BANK] %s attempt %d inserted %d new Neon question(s); progress %d/%d.\n",
+            fprintf(stderr, "[QUESTION BANK] %s attempt %d inserted %d new Supabase question(s); progress %d/%d.\n",
                     field_names[topic_index], attempt, inserted, inserted_total, target);
         }
 
@@ -296,7 +296,7 @@ static void schedule_question_bank_refill(int topic_index, int refill_count) {
     pthread_mutex_lock(&bank_refill_mutex);
     if (bank_refill_active[topic_index]) {
         pthread_mutex_unlock(&bank_refill_mutex);
-        return; /* Neon already holds the exact pending count. */
+        return; /* Supabase already holds the exact pending count. */
     }
     bank_refill_active[topic_index] = 1;
     pthread_mutex_unlock(&bank_refill_mutex);
@@ -854,7 +854,7 @@ int quiz_engine_start(
     memset(fresh_batch, 0, sizeof(fresh_batch));
 
     if (storage_is_configured()) {
-        /* Every quiz question comes from Neon only. The atomic claim marks
+        /* Every quiz question comes directly from Supabase only. The atomic claim marks
            each selected row used permanently, preventing repeat delivery. */
         int selected_count = 0;
         char *stored = storage_take_questions_json(field_names[topic_index], question_count);
@@ -863,7 +863,7 @@ int quiz_engine_start(
             free(stored);
         }
 
-        /* The atomic Neon delete has already recorded the exact replacement
+        /* The atomic Supabase delete has already recorded the exact replacement
            debt. Schedule from that durable count, not the parsed quiz count:
            even malformed legacy rows that were removed must be replaced. */
         int refill_debt = storage_question_refill_debt(field_names[topic_index]);
