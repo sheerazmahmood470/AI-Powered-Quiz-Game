@@ -202,7 +202,7 @@ static int parse_questions_json(const char *json, Question *destination, int cap
 
 
 /* One non-blocking refill worker per topic. It adds a small validated batch
-   while the current quiz is already running; reaching 2,000 is gradual and
+   while the current quiz is already running; reaching the 5,000-per-topic target is gradual and
    never makes quiz start wait for the AI providers. */
 static pthread_mutex_t bank_refill_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int bank_refill_active[5];
