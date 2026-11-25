@@ -40,6 +40,8 @@ static int supabase_exec_questions(PGconn *db, const char *topic, const char *js
         "SELECT $1,md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g'))),item "
         "FROM jsonb_array_elements($2::jsonb) AS item "
         "WHERE jsonb_typeof(item)='object' AND length(trim(COALESCE(item->>'question','')))>0 "
+        "AND NOT EXISTS (SELECT 1 FROM public.quiz_question_archive a WHERE a.topic=$1 "
+        "AND a.question_hash=md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g')))) "
         "ON CONFLICT(topic,question_hash) DO NOTHING",
         2, NULL, values, NULL, NULL, 0);
     int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
@@ -67,8 +69,12 @@ static void mirror_consumed_questions_to_supabase(const char *topic, const char 
         "WITH consumed AS ("
         " SELECT md5(lower(regexp_replace(item->>'question','[^a-zA-Z0-9]','','g'))) AS question_hash "
         " FROM jsonb_array_elements($2::jsonb) AS item"
-        ") UPDATE public.quiz_question_bank q SET used_at=COALESCE(q.used_at,NOW()) "
-        "FROM consumed c WHERE q.topic=$1 AND q.question_hash=c.question_hash",
+        "), retired AS ("
+        " UPDATE public.quiz_question_bank q SET used_at=COALESCE(q.used_at,NOW()) "
+        " FROM consumed c WHERE q.topic=$1 AND q.question_hash=c.question_hash "
+        " RETURNING q.topic,q.question_hash"
+        ") INSERT INTO public.quiz_question_archive(topic,question_hash) "
+        "SELECT topic,question_hash FROM retired ON CONFLICT(topic,question_hash) DO NOTHING",
         2, NULL, values, NULL, NULL, 0);
     if (!r || PQresultStatus(r) != PGRES_COMMAND_OK)
         fprintf(stderr, "[STORAGE] Supabase consumed-question sync failed for %s; Neon remains authoritative.\n", topic);
